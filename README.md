@@ -1,50 +1,105 @@
 # loadout
 
-Manage reusable skills for AI development tools. One repo, multiple tools.
+Skill management for AI development tools. The engine, not the fuel.
 
-Skills are markdown files with instructions that agents load on demand.
-This repo provides the storage, activation config, and delivery scripts
-to make them discoverable by [OpenCode](https://opencode.ai) and
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code) from a
-single source of truth.
+Loadout is the tool that links your skills into the discovery paths
+that [OpenCode](https://opencode.ai) and
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code) scan.
+Your skills live wherever you want. Loadout wires them up.
 
 ## How it works
 
 ```
-skills/<name>/SKILL.md    skill definitions (version-controlled)
-skills.toml               which skills are enabled where
-scripts/install.sh        symlinks enabled skills into tool discovery paths
+~/.config/loadout/
+├── loadout.toml              what's enabled and where
+└── skills/                   your skill definitions
+    └── <name>/SKILL.md
+
+         ↓ install.sh
+
+~/.claude/skills/             → Claude Code discovers them
+~/.config/opencode/skills/    → OpenCode discovers them
+~/.agents/skills/             → Any compatible tool
 ```
 
-The install script reads `skills.toml` and creates symlinks in the
-directories that OpenCode and Claude Code scan for skills. You manage
-skills in one place; both tools find them automatically.
+The repo contains the scripts and schema. Your personal config and
+skills live in `~/.config/loadout/` (XDG-compliant) and never touch
+version control.
 
 ## Quick start
 
 ```bash
-# Clone
+# Clone the tool
 git clone https://github.com/pentaxis93/loadout.git
 cd loadout
+
+# Set up your config
+mkdir -p ~/.config/loadout/skills
+cp loadout.example.toml ~/.config/loadout/loadout.toml
 
 # Create a skill
 ./scripts/new.sh git-commit "Create conventional commits with scope and body"
 
-# Edit the generated SKILL.md
-$EDITOR skills/git-commit/SKILL.md
+# Edit it
+$EDITOR ~/.config/loadout/skills/git-commit/SKILL.md
 
-# Enable it globally
-# Edit skills.toml, add "git-commit" to [global] skills list
+# Enable it — add "git-commit" to [global] skills in loadout.toml
+$EDITOR ~/.config/loadout/loadout.toml
 
 # Validate and install
 ./scripts/validate.sh
 ./scripts/install.sh
 ```
 
+## Configuration
+
+`~/.config/loadout/loadout.toml` controls everything. Override with
+`$LOADOUT_CONFIG`.
+
+```toml
+[sources]
+skills = [
+  "~/.config/loadout/skills",         # your personal skills
+  # "/path/to/team-skills/skills",    # shared/team skills
+]
+
+[global]
+targets = [
+  "~/.claude/skills",
+  "~/.config/opencode/skills",
+  "~/.agents/skills",
+]
+skills = ["git-commit", "code-review"]
+
+[projects."/home/user/my-app"]
+skills = ["deploy-staging"]
+inherit = true  # also include global skills (default)
+```
+
+**Sources** are directories containing skill folders. Listed in priority
+order — first match wins for duplicate names. This lets you layer team
+skills under personal overrides.
+
+See [`loadout.example.toml`](loadout.example.toml) for the full
+annotated config.
+
+## Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/install.sh` | Link enabled skills into discovery paths |
+| `scripts/install.sh --dry-run` | Show what would happen without changes |
+| `scripts/install.sh --clean` | Remove all managed symlinks |
+| `scripts/install.sh --list` | Show sources, skills, and resolution |
+| `scripts/validate.sh` | Check all skills across all sources |
+| `scripts/validate.sh <name>` | Check a single skill by name |
+| `scripts/new.sh <name> [desc]` | Scaffold a new personal skill |
+| `scripts/new.sh --dir <path> <name> [desc]` | Scaffold into a specific directory |
+
 ## Compatibility
 
-Both tools discover skills from `<name>/SKILL.md` directories. The
-install script symlinks into all supported paths:
+The install script symlinks into all paths that OpenCode and Claude
+Code scan:
 
 | Path | Scope | Tool |
 |------|-------|------|
@@ -55,20 +110,8 @@ install script symlinks into all supported paths:
 | `.opencode/skills/` | Project | OpenCode |
 | `.agents/skills/` | Project | Both |
 
-Claude Code extensions in frontmatter (like `disable-model-invocation`,
+Claude Code frontmatter extensions (`disable-model-invocation`,
 `context`, `allowed-tools`) are silently ignored by OpenCode.
-
-## Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `scripts/install.sh` | Link enabled skills into discovery paths |
-| `scripts/install.sh --dry-run` | Show what would happen without changes |
-| `scripts/install.sh --clean` | Remove all managed symlinks |
-| `scripts/install.sh --list` | Show enabled skills per scope |
-| `scripts/validate.sh` | Check all SKILL.md files for correctness |
-| `scripts/validate.sh <name>` | Check a single skill |
-| `scripts/new.sh <name> [desc]` | Scaffold a new skill directory |
 
 ## SKILL.md format
 
@@ -112,23 +155,6 @@ Instructions the agent receives when it loads this skill.
 | `license: MIT` | License identifier |
 | `compatibility: opencode` | Tool compatibility hint |
 | `metadata: {}` | Arbitrary string-to-string map |
-
-## Configuration
-
-`skills.toml` controls activation. Skills listed under `[global]` are
-symlinked to global discovery paths. Per-project overrides add skills
-to specific project directories.
-
-```toml
-[global]
-skills = ["git-commit", "code-review"]
-
-[projects."/home/user/my-app"]
-skills = ["deploy-staging"]
-inherit = true  # also include global skills (default)
-```
-
-See [`skills.toml`](skills.toml) for the full annotated config.
 
 ## Design
 

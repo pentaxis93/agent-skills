@@ -3,17 +3,31 @@ set -euo pipefail
 
 # new.sh — Scaffold a new skill directory.
 #
+# By default, creates skills in ~/.config/loadout/skills/ (your personal
+# collection). Use --dir to specify a different location.
+#
 # Usage:
-#   ./scripts/new.sh my-skill-name "Short description of what it does"
+#   ./scripts/new.sh my-skill "Description"           # personal skill
+#   ./scripts/new.sh --dir ./skills my-skill "Desc"   # specific directory
 
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SKILLS_DIR="$REPO_DIR/skills"
+SKILLS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/loadout/skills"
+
+# Parse --dir flag
+if [ "${1:-}" = "--dir" ]; then
+  SKILLS_DIR="$2"
+  shift 2
+fi
 
 if [ $# -lt 1 ]; then
-  echo "Usage: ./scripts/new.sh <skill-name> [description]"
+  echo "Usage: new.sh [--dir <path>] <skill-name> [description]"
+  echo ""
+  echo "Creates a new skill directory with a SKILL.md template."
+  echo ""
+  echo "Options:"
+  echo "  --dir <path>  Create skill in <path> instead of ~/.config/loadout/skills/"
   echo ""
   echo "Example:"
-  echo "  ./scripts/new.sh git-commit \"Create conventional commits with scope and body\""
+  echo "  new.sh git-commit \"Create conventional commits with scope and body\""
   exit 1
 fi
 
@@ -68,6 +82,6 @@ echo "Created $SKILL_DIR/SKILL.md"
 echo ""
 echo "Next steps:"
 echo "  1. Edit $SKILL_DIR/SKILL.md with your instructions"
-echo "  2. Add '$NAME' to skills.toml under [global] or a project"
-echo "  3. Run ./scripts/install.sh to link it"
-echo "  4. Run ./scripts/validate.sh $NAME to check"
+echo "  2. Add '$NAME' to loadout.toml under [global] skills"
+echo "  3. Run install.sh to link it into discovery paths"
+echo "  4. Run validate.sh $NAME to check"

@@ -1,4 +1,4 @@
-# Agent Skills — Design
+# Loadout — Design
 
 Architecture and rationale for the skill management system.
 For usage instructions, see [README.md](README.md).
@@ -6,57 +6,79 @@ For usage instructions, see [README.md](README.md).
 ## Architecture
 
 ```
-                 ┌─────────────────────┐
-                 │     loadout repo     │  source of truth
-                 │   skills/            │  organized by category
-                 │   skills.toml        │  activation config
-                 └─────────┬───────────┘
-                           │
-                    install.sh
-                           │
-            ┌──────────────┼──────────────┐
-            ▼              ▼              ▼
-   ~/.claude/skills/  ~/.config/     ~/.agents/skills/
-                      opencode/
-                      skills/
-        ▲                 ▲               ▲
-        │                 │               │
-   Claude Code       OpenCode        Any tool using
-                                     .agents/ convention
+~/.config/loadout/              YOUR CONFIG (private, XDG-compliant)
+├── loadout.toml                 what's enabled and where
+└── skills/                      your skill definitions
+    └── <name>/SKILL.md
+
+loadout repo                    THE TOOL (public, git-managed)
+├── scripts/                     install, validate, new
+├── schema/                      JSON Schema for SKILL.md
+├── skills/_template/            starter template
+└── loadout.example.toml         annotated config example
+
+         ↓ install.sh reads loadout.toml, resolves skills
+           from source dirs, symlinks into targets
+
+~/.claude/skills/<name>/        DISCOVERY PATHS (tool-specific)
+~/.config/opencode/skills/<name>/
+~/.agents/skills/<name>/
 ```
 
-### Three layers
+## Three layers
 
-| Layer        | Concern           | Artifact            |
-|------------- |-------------------|---------------------|
-| **Storage**  | Skill definitions | `skills/<name>/SKILL.md` |
-| **Activation** | What's enabled where | `skills.toml`    |
-| **Delivery** | Tool discovery    | `install.sh` symlinks |
+| Layer | Concern | Location |
+|-------|---------|----------|
+| **Storage** | Skill definitions | `~/.config/loadout/skills/` (or any source dir) |
+| **Activation** | What's enabled where | `~/.config/loadout/loadout.toml` |
+| **Delivery** | Tool discovery | `install.sh` symlinks into target paths |
 
-### Why this separation
+## Why separate the tool from the skills
 
-Skills are version-controlled content. Which skills are active in which
-context is a configuration concern. How tools discover them is a delivery
-concern. Mixing these makes skills hard to share, hard to override, and
-hard to audit.
+The public repo is the engine. Your skills are the fuel. Mixing them
+means you can't share the tool without exposing your personal workflow,
+and you can't version your skills without pulling in tool updates.
+
+Separation gives you:
+- **Public repo stays clean** — no personal skills leak into commits
+- **XDG compliance** — config in `~/.config/loadout/`, not scattered
+- **Multiple sources** — layer personal, team, and community skills
+- **Independent versioning** — tool updates don't touch your skills
+
+## Skill resolution
+
+When `install.sh` encounters a skill name, it searches configured
+source directories in order. First match wins. This lets you:
+
+```toml
+[sources]
+skills = [
+  "~/.config/loadout/skills",        # personal (highest priority)
+  "/team/shared-skills/skills",       # team
+  "/path/to/loadout/skills",          # community (lowest priority)
+]
+```
+
+Override a team skill by creating one with the same name in your
+personal directory. The install script will use yours.
 
 ## Compatibility
 
 Both OpenCode and Claude Code discover skills from:
 
-| Path                              | Scope   | Tool         |
-|-----------------------------------|---------|--------------|
-| `.claude/skills/<name>/SKILL.md`  | Project | Both         |
-| `~/.claude/skills/<name>/SKILL.md`| Global  | Both         |
-| `.opencode/skills/<name>/SKILL.md`| Project | OpenCode     |
+| Path | Scope | Tool |
+|------|-------|------|
+| `.claude/skills/<name>/SKILL.md` | Project | Both |
+| `~/.claude/skills/<name>/SKILL.md` | Global | Both |
+| `.opencode/skills/<name>/SKILL.md` | Project | OpenCode |
 | `~/.config/opencode/skills/<name>/SKILL.md` | Global | OpenCode |
-| `.agents/skills/<name>/SKILL.md`  | Project | Both         |
-| `~/.agents/skills/<name>/SKILL.md`| Global  | Both         |
+| `.agents/skills/<name>/SKILL.md` | Project | Both |
+| `~/.agents/skills/<name>/SKILL.md` | Global | Both |
 
-The install script symlinks enabled skills into the appropriate discovery
-paths. Claude Code extensions in frontmatter (`disable-model-invocation`,
-`context`, `allowed-tools`) are ignored by OpenCode (unknown fields are
-silently skipped).
+The install script symlinks into the appropriate target paths.
+Claude Code extensions in frontmatter (`disable-model-invocation`,
+`context`, `allowed-tools`) are ignored by OpenCode (unknown fields
+are silently skipped).
 
 ## SKILL.md format
 
@@ -92,13 +114,3 @@ Names must be lowercase alphanumeric with single-hyphen separators:
 - No leading/trailing hyphens
 - No consecutive hyphens
 - Must match the containing directory name
-
-## skills.toml
-
-See `skills.toml` at repo root for the full annotated configuration.
-
-## Adding a skill
-
-1. Create `skills/<name>/SKILL.md` with valid frontmatter
-2. Add the skill to `skills.toml` under the appropriate scope
-3. Run `./scripts/install.sh` to link it into discovery paths

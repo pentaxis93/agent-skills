@@ -1,0 +1,39 @@
+# loadout.toml — Skill activation configuration
+#
+# Copy this file to ~/.config/loadout/loadout.toml and edit to taste.
+# Override the path with $LOADOUT_CONFIG.
+#
+# Run `install.sh` after editing to apply changes.
+
+# ─── Sources ─────────────────────────────────────────────────────────────
+# Directories containing skill folders (each with a SKILL.md).
+# Searched in order — first match wins for duplicate names.
+
+[sources]
+skills = [
+  "~/.config/loadout/skills",         # your personal skills
+  # "/path/to/shared-skills/skills",  # team/org skills
+]
+
+# ─── Global scope ───────────────────────────────────────────────────────
+# Skills symlinked to global discovery paths (available in all projects).
+
+[global]
+targets = [
+  "~/.claude/skills",
+  "~/.config/opencode/skills",
+  "~/.agents/skills",
+]
+
+# List skill names to enable globally.
+skills = [
+  # "my-skill",
+]
+
+# ─── Project overrides ──────────────────────────────────────────────────
+# Per-project skill sets. Each key is a path to a project root.
+# Project skills are additive with global skills unless inherit = false.
+
+# [projects."/home/user/my-project"]
+# skills = ["deploy-staging"]
+# inherit = true  # default: true — also include global skills

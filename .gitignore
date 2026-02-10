@@ -11,3 +11,6 @@ Thumbs.db
 
 # Don't track the managed-by marker files that install.sh creates
 .managed-by-loadout
+
+# Personal config (lives in ~/.config/loadout/)
+loadout.toml

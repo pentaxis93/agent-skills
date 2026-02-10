@@ -3,19 +3,17 @@ set -euo pipefail
 
 # install.sh — Link enabled skills into tool discovery paths.
 #
-# Reads skills.toml to determine which skills to enable at each scope,
-# then creates symlinks in the appropriate directories so that OpenCode,
-# Claude Code, and other compatible tools can discover them.
+# Reads ~/.config/loadout/loadout.toml (or $LOADOUT_CONFIG) to determine
+# which skills to enable and where. Skills are resolved from configured
+# source directories.
 #
 # Usage:
-#   ./scripts/install.sh              # apply skills.toml
+#   ./scripts/install.sh              # apply loadout.toml
 #   ./scripts/install.sh --dry-run    # show what would happen
 #   ./scripts/install.sh --clean      # remove all managed symlinks
 #   ./scripts/install.sh --list       # list enabled skills per scope
 
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SKILLS_DIR="$REPO_DIR/skills"
-CONFIG="$REPO_DIR/skills.toml"
+CONFIG="${LOADOUT_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/loadout/loadout.toml}"
 MARKER=".managed-by-loadout"
 DRY_RUN=false
 CLEAN=false
@@ -35,7 +33,7 @@ for arg in "$@"; do
       echo "  --clean    Remove all managed symlinks from target directories"
       echo "  --list     List enabled skills per scope and exit"
       echo ""
-      echo "Reads skills.toml from the repo root."
+      echo "Config: \$LOADOUT_CONFIG or ~/.config/loadout/loadout.toml"
       exit 0
       ;;
     *)
@@ -49,20 +47,23 @@ done
 
 if ! command -v python3 &>/dev/null; then
   echo "error: python3 is required to parse TOML" >&2
-  echo "Install it or use your system package manager." >&2
   exit 1
 fi
 
 if [ ! -f "$CONFIG" ]; then
-  echo "error: $CONFIG not found" >&2
+  echo "error: config not found: $CONFIG" >&2
+  echo ""
+  echo "Create it with:"
+  echo "  mkdir -p ~/.config/loadout"
+  echo "  cp loadout.example.toml ~/.config/loadout/loadout.toml"
   exit 1
 fi
 
-# ── TOML parser (uses Python's tomllib/tomli) ───────────────────────────
+# ── TOML parser ─────────────────────────────────────────────────────────
 
 parse_toml() {
   python3 -c "
-import sys, json
+import sys, json, os
 try:
     import tomllib
 except ImportError:
@@ -72,7 +73,7 @@ except ImportError:
         print('error: Python 3.11+ or tomli package required', file=sys.stderr)
         sys.exit(1)
 
-with open('$CONFIG', 'rb') as f:
+with open(os.path.expanduser('$CONFIG'), 'rb') as f:
     config = tomllib.load(f)
 print(json.dumps(config))
 "
@@ -81,6 +82,19 @@ print(json.dumps(config))
 CONFIG_JSON="$(parse_toml)"
 
 # ── Extract config ──────────────────────────────────────────────────────
+
+expand_path() {
+  echo "${1/#\~/$HOME}"
+}
+
+source_dirs() {
+  echo "$CONFIG_JSON" | python3 -c "
+import sys, json, os
+config = json.load(sys.stdin)
+for s in config.get('sources', {}).get('skills', []):
+    print(os.path.expanduser(s))
+"
+}
 
 global_targets() {
   echo "$CONFIG_JSON" | python3 -c "
@@ -112,13 +126,28 @@ for path, cfg in projects.items():
 "
 }
 
+# ── Skill resolution ────────────────────────────────────────────────────
+# Search configured source directories for a skill by name.
+# Returns the first match (sources are searched in order).
+
+resolve_skill() {
+  local name="$1"
+  while IFS= read -r src_dir; do
+    local candidate="$src_dir/$name"
+    if [ -d "$candidate" ] && [ -f "$candidate/SKILL.md" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done < <(source_dirs)
+  return 1
+}
+
 # ── Validation ──────────────────────────────────────────────────────────
 
 validate_name() {
   local name="$1"
   if [[ ! "$name" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
     echo "error: invalid skill name '$name'" >&2
-    echo "  must be lowercase alphanumeric with single-hyphen separators" >&2
     return 1
   fi
   if [ ${#name} -gt 64 ]; then
@@ -129,26 +158,16 @@ validate_name() {
 
 validate_skill() {
   local name="$1"
-  local skill_dir="$SKILLS_DIR/$name"
-  local skill_file="$skill_dir/SKILL.md"
-
   validate_name "$name" || return 1
-
-  if [ ! -d "$skill_dir" ]; then
-    echo "error: skill directory not found: $skill_dir" >&2
-    return 1
-  fi
-  if [ ! -f "$skill_file" ]; then
-    echo "error: SKILL.md not found: $skill_file" >&2
+  if ! resolve_skill "$name" >/dev/null; then
+    echo "error: skill '$name' not found in any source directory" >&2
+    echo "  searched:" >&2
+    source_dirs | while read -r d; do echo "    $d" >&2; done
     return 1
   fi
 }
 
 # ── Actions ─────────────────────────────────────────────────────────────
-
-expand_path() {
-  echo "${1/#\~/$HOME}"
-}
 
 place_marker() {
   local target_dir="$1"
@@ -156,7 +175,8 @@ place_marker() {
   if [ "$DRY_RUN" = true ]; then
     echo "  [dry-run] would create marker: $marker_file"
   else
-    echo "$REPO_DIR" > "$marker_file"
+    mkdir -p "$target_dir"
+    echo "loadout" > "$marker_file"
   fi
 }
 
@@ -164,7 +184,8 @@ link_skill() {
   local name="$1"
   local target_dir="$2"
   local dest="$(expand_path "$target_dir")/$name"
-  local src="$SKILLS_DIR/$name"
+  local src
+  src="$(resolve_skill "$name")" || return 1
 
   if [ "$DRY_RUN" = true ]; then
     echo "  [dry-run] $src -> $dest"
@@ -177,7 +198,6 @@ link_skill() {
   if [ -L "$dest" ]; then
     rm "$dest"
   elif [ -d "$dest" ]; then
-    # Only remove if it's managed by us (has marker in parent)
     local parent_marker="$(expand_path "$target_dir")/$MARKER"
     if [ -f "$parent_marker" ]; then
       rm -rf "$dest"
@@ -204,15 +224,12 @@ clean_target() {
     return
   fi
 
-  # Remove symlinks that point into our skills directory
+  # Remove all symlinks in managed directory
   for entry in "$target_dir"/*/; do
     entry="${entry%/}"
     if [ -L "$entry" ]; then
-      local link_target="$(readlink "$entry")"
-      if [[ "$link_target" == "$SKILLS_DIR"/* ]]; then
-        rm "$entry"
-        echo "  removed: $entry"
-      fi
+      rm "$entry"
+      echo "  removed: $entry"
     fi
   done
 
@@ -229,29 +246,44 @@ clean_target() {
 # ── List mode ───────────────────────────────────────────────────────────
 
 if [ "$LIST" = true ]; then
+  echo "=== Sources ==="
+  source_dirs | while read -r d; do
+    count=0
+    if [ -d "$d" ]; then
+      count=$(find "$d" -maxdepth 2 -name SKILL.md 2>/dev/null | wc -l)
+    fi
+    echo "  $d ($count skills)"
+  done
+
+  echo ""
   echo "=== Global skills ==="
   echo "Targets:"
   global_targets | while read -r t; do
     echo "  $(expand_path "$t")"
   done
   echo "Skills:"
+  has_skills=false
   global_skills | while read -r s; do
     if [ -n "$s" ]; then
-      echo "  $s"
+      has_skills=true
+      local_src="$(resolve_skill "$s" 2>/dev/null || echo "(not found)")"
+      echo "  $s  <- $local_src"
     fi
   done
-  if [ -z "$(global_skills)" ]; then
+  if [ "$has_skills" = false ]; then
     echo "  (none)"
   fi
 
   echo ""
   echo "=== Project skills ==="
+  has_projects=false
   project_entries | while IFS='|' read -r path inherit skills; do
     if [ -n "$path" ]; then
+      has_projects=true
       echo "  $path (inherit=$inherit): $skills"
     fi
   done
-  if [ -z "$(project_entries)" ]; then
+  if [ "$has_projects" = false ]; then
     echo "  (none configured)"
   fi
   exit 0
@@ -277,13 +309,16 @@ fi
 
 # ── Install mode ────────────────────────────────────────────────────────
 
-echo "Installing skills from $CONFIG..."
+echo "Config: $CONFIG"
+echo "Sources:"
+source_dirs | while read -r d; do echo "  $d"; done
+echo ""
 
 # Validate all skills first
-errors=0
+fail=false
 global_skills | while read -r s; do
   if [ -n "$s" ]; then
-    validate_skill "$s" || errors=$((errors + 1))
+    validate_skill "$s" || fail=true
   fi
 done
 
@@ -291,13 +326,12 @@ project_entries | while IFS='|' read -r path inherit skills; do
   IFS=',' read -ra skill_array <<< "$skills"
   for s in "${skill_array[@]}"; do
     if [ -n "$s" ]; then
-      validate_skill "$s" || errors=$((errors + 1))
+      validate_skill "$s" || fail=true
     fi
   done
 done
 
 # Link global skills
-echo ""
 echo "--- Global scope ---"
 global_targets | while read -r target; do
   expanded="$(expand_path "$target")"
@@ -318,7 +352,6 @@ project_entries | while IFS='|' read -r path inherit skills; do
   echo ""
   echo "--- Project: $path ---"
 
-  # Determine project targets
   for subdir in ".claude/skills" ".opencode/skills" ".agents/skills"; do
     project_target="$path/$subdir"
     expanded="$(expand_path "$project_target")"
@@ -326,7 +359,6 @@ project_entries | while IFS='|' read -r path inherit skills; do
     mkdir -p "$expanded"
     place_marker "$expanded"
 
-    # If inheriting, link global skills first
     if [ "$inherit" = "True" ] || [ "$inherit" = "true" ]; then
       global_skills | while read -r gs; do
         if [ -n "$gs" ]; then
@@ -335,7 +367,6 @@ project_entries | while IFS='|' read -r path inherit skills; do
       done
     fi
 
-    # Link project-specific skills
     IFS=',' read -ra skill_array <<< "$skills"
     for s in "${skill_array[@]}"; do
       if [ -n "$s" ]; then
@@ -346,4 +377,4 @@ project_entries | while IFS='|' read -r path inherit skills; do
 done
 
 echo ""
-echo "Done. Skills are now discoverable by OpenCode and Claude Code."
+echo "Done."
