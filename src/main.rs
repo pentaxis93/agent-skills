@@ -39,7 +39,17 @@ enum Commands {
         format: String,
     },
     /// List enabled skills per scope
-    List,
+    List {
+        /// Show skills organized by detected clusters
+        #[arg(long)]
+        groups: bool,
+        /// Show references for a specific skill
+        #[arg(long)]
+        refs: Option<String>,
+        /// Show only missing skills (dangling references)
+        #[arg(long)]
+        missing: bool,
+    },
     /// Validate SKILL.md files
     Validate {
         /// Skill name or directory path (validates all if not specified)
@@ -100,8 +110,22 @@ fn main() -> Result<()> {
 
             commands::graph(&config, output_format)?;
         }
-        Commands::List => {
-            commands::list(&config)?;
+        Commands::List {
+            groups,
+            refs,
+            missing,
+        } => {
+            let mode = if groups {
+                commands::list::ListMode::Groups
+            } else if let Some(skill_name) = refs {
+                commands::list::ListMode::Refs(skill_name)
+            } else if missing {
+                commands::list::ListMode::Missing
+            } else {
+                commands::list::ListMode::Default
+            };
+
+            commands::list(&config, mode)?;
         }
         Commands::Validate { target } => {
             commands::validate(&config, target)?;

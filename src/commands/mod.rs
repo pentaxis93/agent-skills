@@ -14,6 +14,6 @@ pub use clean::clean;
 #[cfg(feature = "graph")]
 pub use graph::graph;
 pub use install::install;
-pub use list::list;
+pub use list::{list, ListMode};
 pub use new::new;
 pub use validate::validate;

@@ -111,6 +111,9 @@ annotated config.
 | `loadout graph --format json` | Export dependency graph as JSON (requires `graph` feature) |
 | `loadout graph --format mermaid` | Render dependency graph as Mermaid diagram (requires `graph` feature) |
 | `loadout list` | Show enabled skills per scope with paths |
+| `loadout list --groups` | Organize skills by detected cluster (requires `graph` feature for clusters) |
+| `loadout list --refs <skill>` | Show incoming and outgoing references for a skill |
+| `loadout list --missing` | Show only missing skills (dangling references) |
 | `loadout validate` | Check all skills across all sources |
 | `loadout validate <name>` | Check a specific skill by name |
 | `loadout validate <dir>` | Check all skills in a directory |
