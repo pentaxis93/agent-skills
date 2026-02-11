@@ -101,6 +101,8 @@ annotated config.
 | `loadout install --dry-run` | Show what would happen without changes |
 | `loadout clean` | Remove all managed symlinks |
 | `loadout clean --dry-run` | Preview what would be cleaned |
+| `loadout check` | Check skill system health and report diagnostics |
+| `loadout check --severity <level>` | Filter diagnostics by severity (error, warning, info) |
 | `loadout list` | Show enabled skills per scope with paths |
 | `loadout validate` | Check all skills across all sources |
 | `loadout validate <name>` | Check a specific skill by name |
