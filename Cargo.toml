@@ -1,0 +1,40 @@
+[package]
+name = "loadout"
+version = "0.1.0"
+edition = "2021"
+authors = ["Robbie Clarken <pentaxis93@proton.me>"]
+description = "Skill lifecycle management system for AI agents"
+license = "MIT"
+
+[dependencies]
+# CLI
+clap = { version = "4.5", features = ["derive", "cargo"] }
+colored = "2.1"
+
+# Config & Serialization
+toml = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+
+# Filesystem
+walkdir = "2.5"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# TUI (optional for v0.3+)
+ratatui = { version = "0.29", optional = true }
+crossterm = { version = "0.28", optional = true }
+
+# Graph output
+petgraph = { version = "0.6", optional = true }
+
+[features]
+default = []
+tui = ["ratatui", "crossterm"]
+graph = ["petgraph"]
+
+[[bin]]
+name = "loadout"
+path = "src/main.rs"
