@@ -29,16 +29,17 @@ version control.
 ## Quick start
 
 ```bash
-# Clone the tool
+# Clone and build
 git clone https://github.com/pentaxis93/loadout.git
 cd loadout
+cargo install --path .
 
 # Set up your config
 mkdir -p ~/.config/loadout/skills
 cp loadout.example.toml ~/.config/loadout/loadout.toml
 
 # Create a skill
-./scripts/new.sh git-commit "Create conventional commits with scope and body"
+loadout new git-commit --description "Create conventional commits with scope and body"
 
 # Edit it
 $EDITOR ~/.config/loadout/skills/git-commit/SKILL.md
@@ -47,8 +48,8 @@ $EDITOR ~/.config/loadout/skills/git-commit/SKILL.md
 $EDITOR ~/.config/loadout/loadout.toml
 
 # Validate and install
-./scripts/validate.sh
-./scripts/install.sh
+loadout validate
+loadout install
 ```
 
 ## Configuration
@@ -59,10 +60,10 @@ Override the config path with `$LOADOUT_CONFIG` or `$XDG_CONFIG_HOME`:
 
 ```bash
 # Use an alternate config
-LOADOUT_CONFIG=~/work-loadout.toml ./scripts/install.sh
+LOADOUT_CONFIG=~/work-loadout.toml loadout install
 
 # Respects XDG
-XDG_CONFIG_HOME=~/.local/config ./scripts/install.sh
+XDG_CONFIG_HOME=~/.local/config loadout install
 ```
 
 ```toml
@@ -92,20 +93,24 @@ skills under personal overrides.
 See [`loadout.example.toml`](loadout.example.toml) for the full
 annotated config.
 
-## Scripts
+## Commands
 
-| Script | Purpose |
-|--------|---------|
-| `scripts/install.sh` | Link enabled skills into discovery paths |
-| `scripts/install.sh --dry-run` | Show what would happen without changes |
-| `scripts/install.sh --clean` | Remove all managed symlinks |
-| `scripts/install.sh --list` | Show sources, skills, and resolution |
-| `scripts/validate.sh` | Check all skills across all sources |
-| `scripts/validate.sh <name>` | Check a single skill by name |
-| `scripts/new.sh <name> [desc]` | Scaffold a new personal skill |
-| `scripts/new.sh --dir <path> <name> [desc]` | Scaffold into a specific directory |
+| Command | Purpose |
+|---------|---------|
+| `loadout install` | Link enabled skills into discovery paths |
+| `loadout install --dry-run` | Show what would happen without changes |
+| `loadout clean` | Remove all managed symlinks |
+| `loadout clean --dry-run` | Preview what would be cleaned |
+| `loadout list` | Show enabled skills per scope with paths |
+| `loadout validate` | Check all skills across all sources |
+| `loadout validate <name>` | Check a specific skill by name |
+| `loadout validate <dir>` | Check all skills in a directory |
+| `loadout new <name>` | Create a new skill from template |
+| `loadout new <name> -d "desc"` | Create skill with description |
 
-All scripts respect `$LOADOUT_CONFIG` to locate your config file.
+All commands respect `$LOADOUT_CONFIG` to locate your config file.
+
+Use `loadout --help` or `loadout <command> --help` for detailed usage.
 
 ## Compatibility
 
