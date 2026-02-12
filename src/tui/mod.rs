@@ -2,8 +2,8 @@
 
 #[cfg(feature = "graph")]
 mod graph_view;
-mod health;
 mod installer;
+mod overview;
 mod skill_browser;
 
 use anyhow::Result;
@@ -17,7 +17,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Block, Borders, Paragraph},
     Frame, Terminal,
 };
 use std::io;
@@ -29,40 +29,40 @@ use crate::skill::Skill;
 /// Which view is currently active
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveView {
+    SystemOverview,
     SkillBrowser,
     GraphView,
     InstallDashboard,
-    HealthPanel,
 }
 
 impl ActiveView {
     /// Get the next view in the cycle
     fn next(self) -> Self {
         match self {
+            ActiveView::SystemOverview => ActiveView::SkillBrowser,
             ActiveView::SkillBrowser => ActiveView::GraphView,
             ActiveView::GraphView => ActiveView::InstallDashboard,
-            ActiveView::InstallDashboard => ActiveView::HealthPanel,
-            ActiveView::HealthPanel => ActiveView::SkillBrowser,
+            ActiveView::InstallDashboard => ActiveView::SystemOverview,
         }
     }
 
     /// Get the previous view in the cycle
     fn prev(self) -> Self {
         match self {
-            ActiveView::SkillBrowser => ActiveView::HealthPanel,
+            ActiveView::SystemOverview => ActiveView::InstallDashboard,
+            ActiveView::SkillBrowser => ActiveView::SystemOverview,
             ActiveView::GraphView => ActiveView::SkillBrowser,
             ActiveView::InstallDashboard => ActiveView::GraphView,
-            ActiveView::HealthPanel => ActiveView::InstallDashboard,
         }
     }
 
     /// Get the display name of the view
     fn name(self) -> &'static str {
         match self {
+            ActiveView::SystemOverview => "System Overview",
             ActiveView::SkillBrowser => "Skill Browser",
             ActiveView::GraphView => "Graph View",
             ActiveView::InstallDashboard => "Install Dashboard",
-            ActiveView::HealthPanel => "Health Panel",
         }
     }
 }
@@ -79,10 +79,10 @@ pub struct App {
     pub status_message: String,
     /// Whether the app should quit
     pub should_quit: bool,
+    /// System overview state
+    pub overview_state: overview::OverviewState,
     /// Skill browser view state
     pub skill_browser_state: skill_browser::SkillBrowserState,
-    /// Health panel view state
-    pub health_panel_state: health::HealthPanelState,
     /// Install dashboard view state
     pub installer_state: installer::InstallerState,
     /// Graph view state
@@ -93,9 +93,9 @@ pub struct App {
 impl App {
     /// Create a new TUI app with the given config and skills
     pub fn new(config: Config, skills: Vec<Skill>) -> Self {
+        let mut overview_state = overview::OverviewState::new();
+        overview_state.refresh(&config, &skills);
         let skill_browser_state = skill_browser::SkillBrowserState::new(&skills);
-        let mut health_panel_state = health::HealthPanelState::new();
-        health_panel_state.refresh(&config, &skills);
         let installer_state = installer::InstallerState::new();
         #[cfg(feature = "graph")]
         let mut graph_view_state = graph_view::GraphViewState::new();
@@ -104,11 +104,11 @@ impl App {
         App {
             config,
             skills,
-            active_view: ActiveView::SkillBrowser,
+            active_view: ActiveView::SystemOverview,
             status_message: "Ready".to_string(),
             should_quit: false,
+            overview_state,
             skill_browser_state,
-            health_panel_state,
             installer_state,
             #[cfg(feature = "graph")]
             graph_view_state,
@@ -217,10 +217,10 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut A
                                 "q: quit | Tab: next view | Shift+Tab: prev view | ?: help"
                                     .to_string()
                         }
-                        KeyCode::Char('1') => app.set_view(ActiveView::SkillBrowser),
-                        KeyCode::Char('2') => app.set_view(ActiveView::GraphView),
-                        KeyCode::Char('3') => app.set_view(ActiveView::InstallDashboard),
-                        KeyCode::Char('4') => app.set_view(ActiveView::HealthPanel),
+                        KeyCode::Char('1') => app.set_view(ActiveView::SystemOverview),
+                        KeyCode::Char('2') => app.set_view(ActiveView::SkillBrowser),
+                        KeyCode::Char('3') => app.set_view(ActiveView::GraphView),
+                        KeyCode::Char('4') => app.set_view(ActiveView::InstallDashboard),
                         // View-specific keys
                         KeyCode::Char('j') | KeyCode::Down
                             if app.active_view == ActiveView::SkillBrowser =>
@@ -241,20 +241,10 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut A
                                 .update_filter(String::new(), &app.skills);
                             app.status_message = "Filter cleared".to_string();
                         }
-                        // Health panel navigation
-                        KeyCode::Char('j') | KeyCode::Down
-                            if app.active_view == ActiveView::HealthPanel =>
-                        {
-                            app.health_panel_state.next();
-                        }
-                        KeyCode::Char('k') | KeyCode::Up
-                            if app.active_view == ActiveView::HealthPanel =>
-                        {
-                            app.health_panel_state.previous();
-                        }
-                        KeyCode::Char('r') if app.active_view == ActiveView::HealthPanel => {
-                            app.health_panel_state.refresh(&app.config, &app.skills);
-                            app.status_message = "Health check refreshed".to_string();
+                        // System overview refresh
+                        KeyCode::Char('r') if app.active_view == ActiveView::SystemOverview => {
+                            app.overview_state.refresh(&app.config, &app.skills);
+                            app.status_message = "Overview refreshed".to_string();
                         }
                         // Install dashboard operations
                         KeyCode::Char('i') if app.active_view == ActiveView::InstallDashboard => {
@@ -308,6 +298,9 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     // Main view area - dispatch to appropriate view renderer
     match app.active_view {
+        ActiveView::SystemOverview => {
+            overview::render(f, chunks[0], &app.overview_state);
+        }
         ActiveView::SkillBrowser => {
             skill_browser::render(
                 f,
@@ -316,9 +309,6 @@ fn ui(f: &mut Frame, app: &mut App) {
                 &app.skills,
                 &mut app.skill_browser_state,
             );
-        }
-        ActiveView::HealthPanel => {
-            health::render(f, chunks[0], &mut app.health_panel_state);
         }
         ActiveView::InstallDashboard => {
             installer::render(f, chunks[0], &app.config, &app.skills, &app.installer_state);
@@ -393,7 +383,7 @@ skills = []
         let app = App::new(config, skills);
 
         // Then
-        assert_eq!(app.active_view, ActiveView::SkillBrowser);
+        assert_eq!(app.active_view, ActiveView::SystemOverview);
         assert_eq!(app.status_message, "Ready");
         assert!(!app.should_quit);
     }
@@ -407,7 +397,7 @@ skills = []
         app.next_view();
 
         // Then
-        assert_eq!(app.active_view, ActiveView::GraphView);
+        assert_eq!(app.active_view, ActiveView::SkillBrowser);
 
         // When
         app.next_view();
@@ -415,7 +405,7 @@ skills = []
         app.next_view();
 
         // Then (should wrap around)
-        assert_eq!(app.active_view, ActiveView::SkillBrowser);
+        assert_eq!(app.active_view, ActiveView::SystemOverview);
     }
 
     #[test]
@@ -427,13 +417,13 @@ skills = []
         app.prev_view();
 
         // Then (should wrap around)
-        assert_eq!(app.active_view, ActiveView::HealthPanel);
+        assert_eq!(app.active_view, ActiveView::InstallDashboard);
 
         // When
         app.prev_view();
 
         // Then
-        assert_eq!(app.active_view, ActiveView::InstallDashboard);
+        assert_eq!(app.active_view, ActiveView::GraphView);
     }
 
     #[test]
@@ -442,10 +432,10 @@ skills = []
         let mut app = App::new(test_config(), vec![]);
 
         // When
-        app.set_view(ActiveView::HealthPanel);
+        app.set_view(ActiveView::SkillBrowser);
 
         // Then
-        assert_eq!(app.active_view, ActiveView::HealthPanel);
+        assert_eq!(app.active_view, ActiveView::SkillBrowser);
     }
 
     #[test]
