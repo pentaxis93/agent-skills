@@ -107,12 +107,14 @@ fn list_groups(config: &Config) -> Result<()> {
     use crate::graph::SkillGraph;
 
     let skills = skill::discover_all(&config.sources.skills)?;
+    let known_skills: HashSet<String> = skills.iter().map(|s| s.name.clone()).collect();
     let mut crossrefs = HashMap::new();
 
     for skill in &skills {
         let skill_md = skill.path.join("SKILL.md");
         let content = fs::read_to_string(&skill_md)?;
-        let refs = skill::extract_references(&content, &skill.name);
+        let refs =
+            skill::extract_references_with_filter(&content, &skill.name, Some(&known_skills));
         if !refs.is_empty() {
             crossrefs.insert(skill.name.clone(), refs);
         }
@@ -198,11 +200,13 @@ fn list_refs(config: &Config, skill_name: &str) -> Result<()> {
     }
 
     // Extract all cross-references
+    let known_skills: HashSet<String> = skills.iter().map(|s| s.name.clone()).collect();
     let mut crossrefs: HashMap<String, Vec<skill::CrossRef>> = HashMap::new();
     for skill in &skills {
         let skill_md = skill.path.join("SKILL.md");
         let content = fs::read_to_string(&skill_md)?;
-        let refs = skill::extract_references(&content, &skill.name);
+        let refs =
+            skill::extract_references_with_filter(&content, &skill.name, Some(&known_skills));
         if !refs.is_empty() {
             crossrefs.insert(skill.name.clone(), refs);
         }
@@ -251,6 +255,7 @@ fn list_refs(config: &Config, skill_name: &str) -> Result<()> {
 fn list_missing(config: &Config) -> Result<()> {
     let skills = skill::discover_all(&config.sources.skills)?;
     let skill_map = skill::build_skill_map(skills.clone());
+    let known_skills: HashSet<String> = skills.iter().map(|s| s.name.clone()).collect();
 
     // Extract all cross-references
     let mut all_referenced: HashSet<String> = HashSet::new();
@@ -258,7 +263,8 @@ fn list_missing(config: &Config) -> Result<()> {
         let skill_md = skill.path.join("SKILL.md");
         let content = fs::read_to_string(&skill_md)
             .context(format!("Failed to read {}", skill_md.display()))?;
-        let refs = skill::extract_references(&content, &skill.name);
+        let refs =
+            skill::extract_references_with_filter(&content, &skill.name, Some(&known_skills));
         for r in refs {
             all_referenced.insert(r.target);
         }

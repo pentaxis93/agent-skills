@@ -10,7 +10,10 @@ use anyhow::Result;
 use thiserror::Error;
 use walkdir::{DirEntry, WalkDir};
 
-pub use crossref::{build_reference_map, extract_references, CrossRef, DetectionMethod};
+pub use crossref::{
+    build_reference_map, extract_references, extract_references_with_filter, CrossRef,
+    DetectionMethod,
+};
 pub use frontmatter::Frontmatter;
 
 const SKILL_FILE_NAME: &str = "SKILL.md";

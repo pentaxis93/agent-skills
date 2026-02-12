@@ -29,11 +29,21 @@ pub enum DetectionMethod {
 ///
 /// Returns a Vec of CrossRef entries for each detected reference.
 /// Filters out self-references (when skill_name matches the reference).
+/// Optionally provide known_skills to filter backtick matches to only valid skill names.
 pub fn extract_references(content: &str, skill_name: &str) -> Vec<CrossRef> {
+    extract_references_with_filter(content, skill_name, None)
+}
+
+/// Extract references with optional skill name filtering for backtick context
+pub fn extract_references_with_filter(
+    content: &str,
+    skill_name: &str,
+    known_skills: Option<&std::collections::HashSet<String>>,
+) -> Vec<CrossRef> {
     let mut refs = Vec::new();
 
     refs.extend(extract_xml_crossrefs(content));
-    refs.extend(extract_backtick_context(content));
+    refs.extend(extract_backtick_context(content, known_skills));
     refs.extend(extract_related_tables(content));
     refs.extend(extract_natural_language(content));
 
@@ -77,7 +87,10 @@ fn extract_xml_crossrefs(content: &str) -> Vec<CrossRef> {
     refs
 }
 
-fn extract_backtick_context(content: &str) -> Vec<CrossRef> {
+fn extract_backtick_context(
+    content: &str,
+    known_skills: Option<&std::collections::HashSet<String>>,
+) -> Vec<CrossRef> {
     let mut refs = Vec::new();
 
     // Matches backtick-quoted skill names when adjacent to contextual words
@@ -91,8 +104,18 @@ fn extract_backtick_context(content: &str) -> Vec<CrossRef> {
             // Either group 2 (context before) or group 3 (context after) will match
             let skill_name = cap.get(2).or_else(|| cap.get(3));
             if let Some(name) = skill_name {
+                let name_str = name.as_str();
+
+                // If known_skills provided, only include if it's a known skill
+                // Otherwise include all matches (backward compatibility)
+                if let Some(known) = known_skills {
+                    if !known.contains(name_str) {
+                        continue;
+                    }
+                }
+
                 refs.push(CrossRef {
-                    target: name.as_str().to_string(),
+                    target: name_str.to_string(),
                     line: line_num + 1,
                     method: DetectionMethod::BacktickContext,
                 });
@@ -199,7 +222,7 @@ mod tests {
         let content = "invoke `skill-review` on the result";
 
         // When
-        let refs = extract_backtick_context(content);
+        let refs = extract_backtick_context(content, None);
 
         // Then
         assert_eq!(refs.len(), 1);
@@ -211,9 +234,11 @@ mod tests {
     fn should_extract_backtick_context_after() {
         // Given
         let content = "Use the `voice` skill for tone calibration";
+        let mut known = std::collections::HashSet::new();
+        known.insert("voice".to_string());
 
         // When
-        let refs = extract_backtick_context(content);
+        let refs = extract_backtick_context(content, Some(&known));
 
         // Then
         assert_eq!(refs.len(), 1);
@@ -326,7 +351,7 @@ mod tests {
         let content = "Line 1\nLine 2 with invoke `my-skill` here\nLine 3";
 
         // When
-        let refs = extract_backtick_context(content);
+        let refs = extract_backtick_context(content, None);
 
         // Then
         assert_eq!(refs.len(), 1);

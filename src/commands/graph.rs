@@ -27,15 +27,21 @@ impl OutputFormat {
 }
 
 pub fn graph(config: &Config, format: OutputFormat) -> Result<()> {
+    use std::collections::HashSet;
+
     // Discover all skills
     let all_skills = skill::discover_all(&config.sources.skills)?;
+
+    // Build set of known skill names for filtering
+    let known_skills: HashSet<String> = all_skills.iter().map(|s| s.name.clone()).collect();
 
     // Extract cross-references
     let mut crossrefs = HashMap::new();
     for skill in &all_skills {
         let skill_md = skill.path.join("SKILL.md");
         let content = fs::read_to_string(&skill_md)?;
-        let refs = skill::extract_references(&content, &skill.name);
+        let refs =
+            skill::extract_references_with_filter(&content, &skill.name, Some(&known_skills));
         if !refs.is_empty() {
             crossrefs.insert(skill.name.clone(), refs);
         }

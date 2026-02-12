@@ -95,12 +95,16 @@ pub fn check(config: &Config, filter_severity: Option<Severity>) -> Result<Vec<F
         .map(|s| (s.frontmatter.name.clone(), s))
         .collect();
 
+    // Build set of known skill names for filtering
+    let known_skills: HashSet<String> = all_skills.iter().map(|s| s.name.clone()).collect();
+
     // Extract cross-references from all skills
     let mut crossrefs: HashMap<String, Vec<skill::CrossRef>> = HashMap::new();
     for skill in &all_skills {
         let skill_md = skill.path.join("SKILL.md");
         let content = fs::read_to_string(&skill_md)?;
-        let refs = skill::extract_references(&content, &skill.name);
+        let refs =
+            skill::extract_references_with_filter(&content, &skill.name, Some(&known_skills));
         if !refs.is_empty() {
             crossrefs.insert(skill.name.clone(), refs);
         }
