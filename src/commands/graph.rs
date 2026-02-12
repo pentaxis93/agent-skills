@@ -15,7 +15,7 @@ pub enum OutputFormat {
 }
 
 impl OutputFormat {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_format(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "dot" => Some(Self::Dot),
             "text" => Some(Self::Text),
@@ -112,25 +112,25 @@ mod tests {
     fn should_parse_output_format_case_insensitive() {
         // Given/When/Then
         assert!(matches!(
-            OutputFormat::from_str("dot"),
+            OutputFormat::parse_format("dot"),
             Some(OutputFormat::Dot)
         ));
         assert!(matches!(
-            OutputFormat::from_str("DOT"),
+            OutputFormat::parse_format("DOT"),
             Some(OutputFormat::Dot)
         ));
         assert!(matches!(
-            OutputFormat::from_str("text"),
+            OutputFormat::parse_format("text"),
             Some(OutputFormat::Text)
         ));
         assert!(matches!(
-            OutputFormat::from_str("json"),
+            OutputFormat::parse_format("json"),
             Some(OutputFormat::Json)
         ));
         assert!(matches!(
-            OutputFormat::from_str("mermaid"),
+            OutputFormat::parse_format("mermaid"),
             Some(OutputFormat::Mermaid)
         ));
-        assert!(OutputFormat::from_str("invalid").is_none());
+        assert!(OutputFormat::parse_format("invalid").is_none());
     }
 }

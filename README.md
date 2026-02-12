@@ -90,6 +90,21 @@ inherit = true  # also include global skills (default)
 order — first match wins for duplicate names. This lets you layer team
 skills under personal overrides.
 
+### Check suppression
+
+Suppress known findings by adding patterns to `[check]`:
+
+```toml
+[check]
+ignore = [
+  "dangling:skill-format:related-skill",  # example reference in template
+  "orphaned:experimental-skill",           # not enabled yet
+]
+```
+
+Pattern format: `"check-type:source:detail"`. Run `loadout check --verbose`
+to see suppressed findings alongside active ones.
+
 See [`loadout.example.toml`](loadout.example.toml) for the full
 annotated config.
 
@@ -103,6 +118,7 @@ annotated config.
 | `loadout clean --dry-run` | Preview what would be cleaned |
 | `loadout check` | Check skill system health and report diagnostics |
 | `loadout check --severity <level>` | Filter diagnostics by severity (error, warning, info) |
+| `loadout check --verbose` | Show suppressed findings alongside active ones |
 | `loadout graph --format dot` | Visualize dependency graph as Graphviz DOT |
 | `loadout graph --format text` | Show dependency graph as text adjacency list |
 | `loadout graph --format json` | Export dependency graph as JSON |

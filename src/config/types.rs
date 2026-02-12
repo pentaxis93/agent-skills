@@ -17,6 +17,19 @@ pub struct Config {
     /// Per-project overrides (keyed by project path)
     #[serde(default)]
     pub projects: HashMap<PathBuf, Project>,
+
+    /// Check command configuration
+    #[serde(default)]
+    pub check: CheckConfig,
+}
+
+/// Configuration for the check command
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CheckConfig {
+    /// Patterns to suppress: "check-type:source:detail"
+    /// e.g., "dangling:skill-format:related-skill"
+    #[serde(default)]
+    pub ignore: Vec<String>,
 }
 
 /// Source directories configuration

@@ -30,6 +30,9 @@ enum Commands {
         /// Filter by minimum severity (error, warning, info)
         #[arg(long)]
         severity: Option<String>,
+        /// Show suppressed findings alongside active ones
+        #[arg(long)]
+        verbose: bool,
     },
     /// Visualize skill dependency graph
     #[cfg(feature = "graph")]
@@ -95,13 +98,13 @@ fn main() -> Result<()> {
         Commands::Clean { dry_run } => {
             commands::clean(&config, dry_run)?;
         }
-        Commands::Check { severity } => {
+        Commands::Check { severity, verbose } => {
             let filter = severity
                 .as_deref()
-                .and_then(|s| match s.to_lowercase().as_str() {
-                    "error" => Some(commands::check::Severity::Error),
-                    "warning" => Some(commands::check::Severity::Warning),
-                    "info" => Some(commands::check::Severity::Info),
+                .map(|s| match s.to_lowercase().as_str() {
+                    "error" => commands::check::Severity::Error,
+                    "warning" => commands::check::Severity::Warning,
+                    "info" => commands::check::Severity::Info,
                     _ => {
                         eprintln!(
                             "Invalid severity: {}. Valid values: error, warning, info",
@@ -111,7 +114,7 @@ fn main() -> Result<()> {
                     }
                 });
 
-            let findings = commands::check(&config, filter)?;
+            let findings = commands::check(&config, filter, verbose)?;
             commands::print_check_findings(&findings);
             std::process::exit(commands::check_exit_code(&findings));
         }
@@ -121,8 +124,8 @@ fn main() -> Result<()> {
             pipeline,
             tag,
         } => {
-            let output_format =
-                commands::graph::OutputFormat::from_str(&format).unwrap_or_else(|| {
+            let output_format = commands::graph::OutputFormat::parse_format(&format)
+                .unwrap_or_else(|| {
                     eprintln!(
                         "Invalid format: {}. Valid values: dot, text, json, mermaid",
                         format

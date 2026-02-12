@@ -576,6 +576,7 @@ mod tests {
                 skills: vec!["test-skill".to_string()],
             },
             projects: HashMap::new(),
+            check: Default::default(),
         };
 
         // When
@@ -600,6 +601,7 @@ mod tests {
                 skills: vec![],
             },
             projects: HashMap::new(),
+            check: Default::default(),
         };
 
         // When
@@ -624,6 +626,7 @@ mod tests {
                 skills: vec![],
             },
             projects: HashMap::new(),
+            check: Default::default(),
         };
 
         // When
@@ -648,6 +651,7 @@ mod tests {
                 skills: vec![],
             },
             projects: HashMap::new(),
+            check: Default::default(),
         };
 
         // When
@@ -672,6 +676,7 @@ mod tests {
                 skills: vec![],
             },
             projects: HashMap::new(),
+            check: Default::default(),
         };
 
         // When
@@ -696,6 +701,7 @@ mod tests {
                 skills: vec![],
             },
             projects: HashMap::new(),
+            check: Default::default(),
         };
 
         // When
@@ -720,6 +726,7 @@ mod tests {
                 skills: vec![],
             },
             projects: HashMap::new(),
+            check: Default::default(),
         };
 
         // When
@@ -744,6 +751,7 @@ mod tests {
                 skills: vec![],
             },
             projects: HashMap::new(),
+            check: Default::default(),
         };
 
         // When
@@ -776,6 +784,7 @@ mod tests {
                 skills: vec![],
             },
             projects: HashMap::new(),
+            check: Default::default(),
         };
 
         // When

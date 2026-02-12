@@ -167,6 +167,7 @@ mod tests {
                 );
                 projects
             },
+            check: Default::default(),
         }
     }
 

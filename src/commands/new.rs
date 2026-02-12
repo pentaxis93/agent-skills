@@ -139,6 +139,7 @@ mod tests {
                 skills: vec![],
             },
             projects: HashMap::new(),
+            check: Default::default(),
         }
     }
 

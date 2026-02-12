@@ -40,53 +40,79 @@ impl Severity {
 pub struct Finding {
     pub severity: Severity,
     pub message: String,
+    pub fix: String,
     pub path: Option<PathBuf>,
+    /// Key for suppression matching: "check-type:source:detail"
+    pub suppress_key: String,
 }
 
 impl Finding {
-    fn error(message: impl Into<String>) -> Self {
+    fn error(message: impl Into<String>, fix: impl Into<String>, key: impl Into<String>) -> Self {
         Self {
             severity: Severity::Error,
             message: message.into(),
+            fix: fix.into(),
             path: None,
+            suppress_key: key.into(),
         }
     }
 
-    fn error_with_path(message: impl Into<String>, path: PathBuf) -> Self {
+    fn error_with_path(
+        message: impl Into<String>,
+        fix: impl Into<String>,
+        key: impl Into<String>,
+        path: PathBuf,
+    ) -> Self {
         Self {
             severity: Severity::Error,
             message: message.into(),
+            fix: fix.into(),
             path: Some(path),
+            suppress_key: key.into(),
         }
     }
 
-    #[cfg(test)]
-    fn warning(message: impl Into<String>) -> Self {
+    fn warning(message: impl Into<String>, fix: impl Into<String>, key: impl Into<String>) -> Self {
         Self {
             severity: Severity::Warning,
             message: message.into(),
+            fix: fix.into(),
             path: None,
+            suppress_key: key.into(),
         }
     }
 
-    fn warning_with_path(message: impl Into<String>, path: PathBuf) -> Self {
+    fn warning_with_path(
+        message: impl Into<String>,
+        fix: impl Into<String>,
+        key: impl Into<String>,
+        path: PathBuf,
+    ) -> Self {
         Self {
             severity: Severity::Warning,
             message: message.into(),
+            fix: fix.into(),
             path: Some(path),
+            suppress_key: key.into(),
         }
     }
 
-    fn info(message: impl Into<String>) -> Self {
+    fn info(message: impl Into<String>, fix: impl Into<String>, key: impl Into<String>) -> Self {
         Self {
             severity: Severity::Info,
             message: message.into(),
+            fix: fix.into(),
             path: None,
+            suppress_key: key.into(),
         }
     }
 }
 
-pub fn check(config: &Config, filter_severity: Option<Severity>) -> Result<Vec<Finding>> {
+pub fn check(
+    config: &Config,
+    filter_severity: Option<Severity>,
+    verbose: bool,
+) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
 
     // Discover all skills across all sources
@@ -117,10 +143,10 @@ pub fn check(config: &Config, filter_severity: Option<Severity>) -> Result<Vec<F
     // Check 2: Orphaned skills
     findings.extend(check_orphaned_skills(config, &all_skills));
 
-    // Check 3: Name/directory mismatches (already validated in frontmatter, but check again)
+    // Check 3: Name/directory mismatches
     findings.extend(check_name_directory_mismatch(&all_skills));
 
-    // Check 4: Missing required frontmatter fields (also validated, but double-check)
+    // Check 4: Missing required frontmatter fields
     findings.extend(check_missing_frontmatter(&all_skills));
 
     // Check 5: Broken symlinks in target directories
@@ -132,8 +158,11 @@ pub fn check(config: &Config, filter_severity: Option<Severity>) -> Result<Vec<F
     // Check 7: Empty or placeholder descriptions
     findings.extend(check_placeholder_descriptions(&all_skills));
 
-    // Check 8: Circular references
-    findings.extend(check_circular_references(&crossrefs));
+    // Check 8: Pipeline integrity
+    findings.extend(check_pipeline_integrity(&all_skills, &known_skills));
+
+    // Check 9: Untagged/unpipelined skills
+    findings.extend(check_missing_metadata(&all_skills));
 
     // Sort by severity (errors first)
     findings.sort_by_key(|f| f.severity);
@@ -142,6 +171,19 @@ pub fn check(config: &Config, filter_severity: Option<Severity>) -> Result<Vec<F
     // Filter by severity if requested
     if let Some(min_severity) = filter_severity {
         findings.retain(|f| f.severity >= min_severity);
+    }
+
+    // Apply suppression
+    let ignore_set: HashSet<&str> = config.check.ignore.iter().map(|s| s.as_str()).collect();
+    if !verbose {
+        findings.retain(|f| !ignore_set.contains(f.suppress_key.as_str()));
+    } else {
+        // In verbose mode, mark suppressed findings but keep them
+        for finding in &mut findings {
+            if ignore_set.contains(finding.suppress_key.as_str()) {
+                finding.message = format!("{} (suppressed)", finding.message);
+            }
+        }
     }
 
     Ok(findings)
@@ -156,10 +198,17 @@ fn check_dangling_references(
     for (source_skill, refs) in crossrefs {
         for crossref in refs {
             if !skill_map.contains_key(&crossref.target) {
-                findings.push(Finding::error(format!(
-                    "Skill '{}' references non-existent skill '{}' (line {})",
-                    source_skill, crossref.target, crossref.line
-                )));
+                findings.push(Finding::error(
+                    format!(
+                        "Skill '{}' references non-existent skill '{}' (line {})",
+                        source_skill, crossref.target, crossref.line
+                    ),
+                    format!(
+                        "Create the skill with `loadout new {}`, or remove the reference at line {}",
+                        crossref.target, crossref.line
+                    ),
+                    format!("dangling:{}:{}", source_skill, crossref.target),
+                ));
             }
         }
     }
@@ -186,6 +235,8 @@ fn check_orphaned_skills(config: &Config, all_skills: &[Skill]) -> Vec<Finding> 
                     "Skill '{}' exists in sources but not in any config section",
                     skill.name
                 ),
+                format!("Add '{}' to [global].skills in loadout.toml", skill.name),
+                format!("orphaned:{}", skill.name),
                 skill.path.clone(),
             ));
         }
@@ -206,6 +257,11 @@ fn check_name_directory_mismatch(all_skills: &[Skill]) -> Vec<Finding> {
                         skill.name,
                         dir_name.to_string_lossy()
                     ),
+                    format!(
+                        "Rename directory to '{}' or update frontmatter name field",
+                        skill.name
+                    ),
+                    format!("name-mismatch:{}", skill.name),
                     skill.path.clone(),
                 ));
             }
@@ -219,11 +275,11 @@ fn check_missing_frontmatter(all_skills: &[Skill]) -> Vec<Finding> {
     let mut findings = Vec::new();
 
     for skill in all_skills {
-        // Name and description are validated when parsing frontmatter
-        // This check is mostly redundant but included for completeness
         if skill.frontmatter.description.is_empty() {
             findings.push(Finding::error_with_path(
                 format!("Skill '{}' has empty description", skill.name),
+                "Add a description to the SKILL.md frontmatter".to_string(),
+                format!("empty-description:{}", skill.name),
                 skill.path.clone(),
             ));
         }
@@ -237,7 +293,6 @@ fn check_broken_symlinks(config: &Config) -> Result<Vec<Finding>> {
 
     let mut all_targets = config.global.targets.clone();
     for project_path in config.projects.keys() {
-        // Project-local targets: .claude/skills, .opencode/skills, .agents/skills
         all_targets.push(project_path.join(".claude/skills"));
         all_targets.push(project_path.join(".opencode/skills"));
         all_targets.push(project_path.join(".agents/skills"));
@@ -252,14 +307,16 @@ fn check_broken_symlinks(config: &Config) -> Result<Vec<Finding>> {
             let entry = entry?;
             let path = entry.path();
 
-            if path.is_symlink() {
-                // Check if symlink target exists
-                if fs::metadata(&path).is_err() {
-                    findings.push(Finding::error_with_path(
-                        format!("Broken symlink: target does not exist"),
-                        path,
-                    ));
-                }
+            if path.is_symlink() && fs::metadata(&path).is_err() {
+                findings.push(Finding::error_with_path(
+                    "Broken symlink: target does not exist".to_string(),
+                    "Run `loadout clean && loadout install` to rebuild symlinks".to_string(),
+                    format!(
+                        "broken-symlink:{}",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    ),
+                    path,
+                ));
             }
         }
     }
@@ -286,17 +343,21 @@ fn check_unmanaged_conflicts(config: &Config) -> Result<Vec<Finding>> {
             let entry = entry?;
             let path = entry.path();
 
-            // Skip symlinks (those are managed)
             if path.is_symlink() {
                 continue;
             }
 
-            // Check if it's a directory without our marker
             if path.is_dir() {
                 let marker_path = path.join(MARKER_FILE);
                 if !marker_path.exists() {
                     findings.push(Finding::warning_with_path(
-                        format!("Unmanaged directory conflicts with skill slot"),
+                        "Unmanaged directory conflicts with skill slot".to_string(),
+                        "Remove the directory, or let loadout manage it with `loadout install`"
+                            .to_string(),
+                        format!(
+                            "unmanaged:{}",
+                            path.file_name().unwrap_or_default().to_string_lossy()
+                        ),
                         path,
                     ));
                 }
@@ -313,7 +374,6 @@ fn check_placeholder_descriptions(all_skills: &[Skill]) -> Vec<Finding> {
     for skill in all_skills {
         let desc = &skill.frontmatter.description;
 
-        // Check for placeholder text
         if PLACEHOLDER_DESCRIPTIONS.iter().any(|p| desc.contains(p)) {
             findings.push(Finding::warning_with_path(
                 format!(
@@ -321,11 +381,14 @@ fn check_placeholder_descriptions(all_skills: &[Skill]) -> Vec<Finding> {
                     skill.name,
                     desc.chars().take(50).collect::<String>()
                 ),
+                format!(
+                    "Edit {}/SKILL.md and write a real description",
+                    skill.path.display()
+                ),
+                format!("placeholder:{}", skill.name),
                 skill.path.clone(),
             ));
-        }
-        // Check for very short descriptions (<10 chars)
-        else if desc.len() < 10 {
+        } else if desc.len() < 10 {
             findings.push(Finding::warning_with_path(
                 format!(
                     "Skill '{}' has very short description ({} chars): '{}'",
@@ -333,6 +396,11 @@ fn check_placeholder_descriptions(all_skills: &[Skill]) -> Vec<Finding> {
                     desc.len(),
                     desc
                 ),
+                format!(
+                    "Edit {}/SKILL.md and expand the description",
+                    skill.path.display()
+                ),
+                format!("short-description:{}", skill.name),
                 skill.path.clone(),
             ));
         }
@@ -341,27 +409,88 @@ fn check_placeholder_descriptions(all_skills: &[Skill]) -> Vec<Finding> {
     findings
 }
 
-fn check_circular_references(crossrefs: &HashMap<String, Vec<skill::CrossRef>>) -> Vec<Finding> {
+fn check_pipeline_integrity(all_skills: &[Skill], known_skills: &HashSet<String>) -> Vec<Finding> {
     let mut findings = Vec::new();
 
-    // Build adjacency map
-    let mut graph: HashMap<String, HashSet<String>> = HashMap::new();
-    for (source, refs) in crossrefs {
-        let targets: HashSet<String> = refs.iter().map(|r| r.target.clone()).collect();
-        graph.insert(source.clone(), targets);
+    // Build a map of pipeline declarations: pipeline_name -> skill_name -> PipelineStage
+    let mut pipeline_map: HashMap<String, HashMap<String, &skill::PipelineStage>> = HashMap::new();
+    for skill in all_skills {
+        if let Some(pipeline) = &skill.frontmatter.pipeline {
+            for (name, stage) in pipeline {
+                pipeline_map
+                    .entry(name.clone())
+                    .or_default()
+                    .insert(skill.name.clone(), stage);
+            }
+        }
     }
 
-    // Detect cycles using DFS
-    let mut visited = HashSet::new();
-    let mut rec_stack = HashSet::new();
+    // Check each pipeline for integrity
+    for (pipeline_name, stages) in &pipeline_map {
+        for (skill_name, stage) in stages {
+            // Check after references exist
+            if let Some(after) = &stage.after {
+                for dep in after {
+                    if !known_skills.contains(dep) {
+                        findings.push(Finding::error(
+                            format!(
+                                "Pipeline '{}': skill '{}' declares after: ['{}'] but skill doesn't exist",
+                                pipeline_name, skill_name, dep
+                            ),
+                            format!(
+                                "Create the skill with `loadout new {}`, or remove it from the after list",
+                                dep
+                            ),
+                            format!("pipeline-missing:{}:{}:{}", pipeline_name, skill_name, dep),
+                        ));
+                    }
+                }
+            }
 
-    for skill in graph.keys() {
-        if !visited.contains(skill) {
-            if let Some(cycle) = find_cycle(skill, &graph, &mut visited, &mut rec_stack) {
-                findings.push(Finding::info(format!(
-                    "Circular reference detected: {}",
-                    cycle.join(" → ")
-                )));
+            // Check before references exist
+            if let Some(before) = &stage.before {
+                for dep in before {
+                    if !known_skills.contains(dep) {
+                        findings.push(Finding::error(
+                            format!(
+                                "Pipeline '{}': skill '{}' declares before: ['{}'] but skill doesn't exist",
+                                pipeline_name, skill_name, dep
+                            ),
+                            format!(
+                                "Create the skill with `loadout new {}`, or remove it from the before list",
+                                dep
+                            ),
+                            format!("pipeline-missing:{}:{}:{}", pipeline_name, skill_name, dep),
+                        ));
+                    }
+                }
+            }
+
+            // Check for asymmetric after/before declarations
+            if let Some(after) = &stage.after {
+                for dep in after {
+                    if let Some(dep_stage) = stages.get(dep) {
+                        // dep should have before: [skill_name]
+                        let has_reciprocal = dep_stage
+                            .before
+                            .as_ref()
+                            .map(|b| b.contains(skill_name))
+                            .unwrap_or(false);
+                        if !has_reciprocal {
+                            findings.push(Finding::warning(
+                                format!(
+                                    "Pipeline '{}': '{}' declares after: ['{}'] but '{}' doesn't declare before: ['{}']",
+                                    pipeline_name, skill_name, dep, dep, skill_name
+                                ),
+                                format!(
+                                    "Add before: ['{}'] to skill '{}' in pipeline '{}'",
+                                    skill_name, dep, pipeline_name
+                                ),
+                                format!("pipeline-gap:{}:{}:{}", pipeline_name, skill_name, dep),
+                            ));
+                        }
+                    }
+                }
             }
         }
     }
@@ -369,31 +498,34 @@ fn check_circular_references(crossrefs: &HashMap<String, Vec<skill::CrossRef>>) 
     findings
 }
 
-fn find_cycle(
-    node: &str,
-    graph: &HashMap<String, HashSet<String>>,
-    visited: &mut HashSet<String>,
-    rec_stack: &mut HashSet<String>,
-) -> Option<Vec<String>> {
-    visited.insert(node.to_string());
-    rec_stack.insert(node.to_string());
+fn check_missing_metadata(all_skills: &[Skill]) -> Vec<Finding> {
+    let mut findings = Vec::new();
 
-    if let Some(neighbors) = graph.get(node) {
-        for neighbor in neighbors {
-            if !visited.contains(neighbor) {
-                if let Some(mut cycle) = find_cycle(neighbor, graph, visited, rec_stack) {
-                    cycle.insert(0, node.to_string());
-                    return Some(cycle);
-                }
-            } else if rec_stack.contains(neighbor) {
-                // Found a cycle
-                return Some(vec![node.to_string(), neighbor.clone()]);
-            }
+    for skill in all_skills {
+        let has_tags = skill
+            .frontmatter
+            .tags
+            .as_ref()
+            .map(|t| !t.is_empty())
+            .unwrap_or(false);
+        let has_pipeline = skill.frontmatter.pipeline.is_some();
+
+        if !has_tags && !has_pipeline {
+            findings.push(Finding::info(
+                format!(
+                    "Skill '{}' has no tags and isn't in any pipeline",
+                    skill.name
+                ),
+                format!(
+                    "Add tags: [<tag>] or pipeline metadata to {}/SKILL.md",
+                    skill.path.display()
+                ),
+                format!("no-metadata:{}", skill.name),
+            ));
         }
     }
 
-    rec_stack.remove(node);
-    None
+    findings
 }
 
 pub fn print_findings(findings: &[Finding]) {
@@ -411,7 +543,7 @@ pub fn print_findings(findings: &[Finding]) {
             .push(finding);
     }
 
-    // Print in order: Error → Warning → Info
+    // Print in order: Error -> Warning -> Info
     for severity in [Severity::Error, Severity::Warning, Severity::Info] {
         if let Some(findings) = by_severity.get(&severity) {
             println!(
@@ -434,6 +566,11 @@ pub fn print_findings(findings: &[Finding]) {
                         finding.message.dimmed()
                     );
                 }
+                println!(
+                    "    {} {}",
+                    "↳".color(severity.color()),
+                    finding.fix.dimmed()
+                );
             }
         }
     }
@@ -502,6 +639,7 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Error);
         assert!(findings[0].message.contains("nonexistent"));
+        assert!(findings[0].fix.contains("loadout new nonexistent"));
     }
 
     #[test]
@@ -516,6 +654,7 @@ mod tests {
                 skills: vec!["skill-a".to_string()],
             },
             projects: HashMap::new(),
+            check: Default::default(),
         };
 
         let skills = vec![
@@ -530,6 +669,7 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Warning);
         assert!(findings[0].message.contains("skill-b"));
+        assert!(findings[0].fix.contains("loadout.toml"));
     }
 
     #[test]
@@ -551,40 +691,140 @@ mod tests {
     }
 
     #[test]
-    fn should_detect_circular_references() {
-        // Given: skill-a → skill-b → skill-a (cycle)
-        let mut crossrefs = HashMap::new();
-        crossrefs.insert(
-            "skill-a".to_string(),
-            vec![skill::CrossRef {
-                target: "skill-b".to_string(),
-                line: 1,
-                method: skill::DetectionMethod::XmlCrossref,
-            }],
-        );
-        crossrefs.insert(
-            "skill-b".to_string(),
-            vec![skill::CrossRef {
-                target: "skill-a".to_string(),
-                line: 1,
-                method: skill::DetectionMethod::XmlCrossref,
-            }],
-        );
+    fn should_detect_pipeline_integrity_issues() {
+        // Given: skill-a declares after: [skill-b] but skill-b doesn't declare before: [skill-a]
+        use crate::skill::frontmatter::{Frontmatter, PipelineStage};
+
+        let skills = vec![
+            Skill {
+                name: "skill-a".to_string(),
+                path: PathBuf::from("/test/skills/skill-a"),
+                skill_file: PathBuf::from("/test/skills/skill-a/SKILL.md"),
+                frontmatter: Frontmatter {
+                    name: "skill-a".to_string(),
+                    description: "Test A".to_string(),
+                    disable_model_invocation: None,
+                    user_invocable: None,
+                    allowed_tools: None,
+                    context: None,
+                    agent: None,
+                    model: None,
+                    argument_hint: None,
+                    license: None,
+                    compatibility: None,
+                    metadata: None,
+                    tags: None,
+                    pipeline: Some({
+                        let mut m = HashMap::new();
+                        m.insert(
+                            "test-pipeline".to_string(),
+                            PipelineStage {
+                                stage: "second".to_string(),
+                                order: 2,
+                                after: Some(vec!["skill-b".to_string()]),
+                                before: None,
+                            },
+                        );
+                        m
+                    }),
+                },
+            },
+            Skill {
+                name: "skill-b".to_string(),
+                path: PathBuf::from("/test/skills/skill-b"),
+                skill_file: PathBuf::from("/test/skills/skill-b/SKILL.md"),
+                frontmatter: Frontmatter {
+                    name: "skill-b".to_string(),
+                    description: "Test B".to_string(),
+                    disable_model_invocation: None,
+                    user_invocable: None,
+                    allowed_tools: None,
+                    context: None,
+                    agent: None,
+                    model: None,
+                    argument_hint: None,
+                    license: None,
+                    compatibility: None,
+                    metadata: None,
+                    tags: None,
+                    pipeline: Some({
+                        let mut m = HashMap::new();
+                        m.insert(
+                            "test-pipeline".to_string(),
+                            PipelineStage {
+                                stage: "first".to_string(),
+                                order: 1,
+                                after: None,
+                                before: None, // Missing before: [skill-a]
+                            },
+                        );
+                        m
+                    }),
+                },
+            },
+        ];
+
+        let known_skills: HashSet<String> = skills.iter().map(|s| s.name.clone()).collect();
 
         // When
-        let findings = check_circular_references(&crossrefs);
+        let findings = check_pipeline_integrity(&skills, &known_skills);
+
+        // Then
+        assert!(findings.iter().any(|f| {
+            f.severity == Severity::Warning && f.message.contains("doesn't declare before")
+        }));
+    }
+
+    #[test]
+    fn should_detect_missing_metadata() {
+        // Given: a skill with no tags and no pipeline
+        let skills = vec![test_skill("lonely-skill", "No metadata at all")];
+
+        // When
+        let findings = check_missing_metadata(&skills);
 
         // Then
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Info);
-        assert!(findings[0].message.contains("Circular reference"));
+        assert!(findings[0].message.contains("lonely-skill"));
+    }
+
+    #[test]
+    fn should_include_fix_suggestions_in_all_findings() {
+        // Given
+        let mut crossrefs = HashMap::new();
+        crossrefs.insert(
+            "skill-a".to_string(),
+            vec![skill::CrossRef {
+                target: "missing".to_string(),
+                line: 5,
+                method: skill::DetectionMethod::XmlCrossref,
+            }],
+        );
+
+        let skill_map: HashMap<String, &Skill> = HashMap::new();
+
+        // When
+        let findings = check_dangling_references(&crossrefs, &skill_map);
+
+        // Then: every finding has a non-empty fix
+        for finding in &findings {
+            assert!(
+                !finding.fix.is_empty(),
+                "Finding should have a fix suggestion"
+            );
+        }
     }
 
     #[test]
     fn should_determine_exit_code_from_severity() {
         // Given
-        let findings_with_errors = vec![Finding::error("Something failed")];
-        let findings_warnings_only = vec![Finding::warning("Something suspicious")];
+        let findings_with_errors = vec![Finding::error("Something failed", "Fix it", "test:error")];
+        let findings_warnings_only = vec![Finding::warning(
+            "Something suspicious",
+            "Check it",
+            "test:warning",
+        )];
         let no_findings = vec![];
 
         // When/Then

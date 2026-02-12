@@ -84,7 +84,7 @@ impl SkillGraph {
         // Add edges from pipeline after/before declarations
         for skill in skills {
             if let Some(pipeline) = &skill.frontmatter.pipeline {
-                for (_pipeline_name, stage) in pipeline {
+                for stage in pipeline.values() {
                     // "after" means this skill depends on those skills
                     if let Some(after) = &stage.after {
                         for dep in after {
