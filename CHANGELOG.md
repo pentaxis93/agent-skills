@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed
+- TUI System Overview view (non-interactive dashboard removed; Skill Explorer is now the landing view)
+
 ## [0.3.5] — 2026-02-12
 
 Phases 2, 3, and 3.5: Rust CLI, analysis commands, and metadata.

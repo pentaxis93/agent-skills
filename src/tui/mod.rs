@@ -2,7 +2,6 @@
 
 #[cfg(feature = "graph")]
 mod graph_view;
-mod overview;
 mod pipeline;
 mod skill_browser;
 
@@ -35,7 +34,6 @@ use crate::skill::{self, Skill};
 /// Which view is currently active
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveView {
-    SystemOverview,
     SkillBrowser,
     PipelineView,
     GraphView,
@@ -45,18 +43,16 @@ impl ActiveView {
     /// Get the next view in the cycle
     fn next(self) -> Self {
         match self {
-            ActiveView::SystemOverview => ActiveView::SkillBrowser,
             ActiveView::SkillBrowser => ActiveView::PipelineView,
             ActiveView::PipelineView => ActiveView::GraphView,
-            ActiveView::GraphView => ActiveView::SystemOverview,
+            ActiveView::GraphView => ActiveView::SkillBrowser,
         }
     }
 
     /// Get the previous view in the cycle
     fn prev(self) -> Self {
         match self {
-            ActiveView::SystemOverview => ActiveView::GraphView,
-            ActiveView::SkillBrowser => ActiveView::SystemOverview,
+            ActiveView::SkillBrowser => ActiveView::GraphView,
             ActiveView::PipelineView => ActiveView::SkillBrowser,
             ActiveView::GraphView => ActiveView::PipelineView,
         }
@@ -65,7 +61,6 @@ impl ActiveView {
     /// Get the display name of the view
     fn name(self) -> &'static str {
         match self {
-            ActiveView::SystemOverview => "System Overview",
             ActiveView::SkillBrowser => "Skill Explorer",
             ActiveView::PipelineView => "Pipeline View",
             ActiveView::GraphView => "Graph Explorer",
@@ -90,8 +85,6 @@ pub struct App {
     pub status_message: String,
     /// Whether the app should quit
     pub should_quit: bool,
-    /// System overview state
-    pub overview_state: overview::OverviewState,
     /// Skill browser view state
     pub skill_browser_state: skill_browser::SkillBrowserState,
     /// Pipeline view state
@@ -128,8 +121,6 @@ impl App {
         // Run health checks
         let findings = check::check(&config, None, false).unwrap_or_default();
 
-        let mut overview_state = overview::OverviewState::new();
-        overview_state.refresh(&config, &skills);
         let skill_browser_state = skill_browser::SkillBrowserState::new(&skills);
         let mut pipeline_state = pipeline::PipelineState::new();
         pipeline_state.refresh(&config, &skills);
@@ -143,10 +134,9 @@ impl App {
             #[cfg(feature = "graph")]
             graph,
             findings,
-            active_view: ActiveView::SystemOverview,
+            active_view: ActiveView::SkillBrowser,
             status_message: "Ready".to_string(),
             should_quit: false,
-            overview_state,
             skill_browser_state,
             pipeline_state,
             #[cfg(feature = "graph")]
@@ -256,10 +246,9 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut A
                                 "q: quit | Tab: next view | Shift+Tab: prev view | ?: help"
                                     .to_string()
                         }
-                        KeyCode::Char('1') => app.set_view(ActiveView::SystemOverview),
-                        KeyCode::Char('2') => app.set_view(ActiveView::SkillBrowser),
-                        KeyCode::Char('3') => app.set_view(ActiveView::PipelineView),
-                        KeyCode::Char('4') => app.set_view(ActiveView::GraphView),
+                        KeyCode::Char('1') => app.set_view(ActiveView::SkillBrowser),
+                        KeyCode::Char('2') => app.set_view(ActiveView::PipelineView),
+                        KeyCode::Char('3') => app.set_view(ActiveView::GraphView),
                         // View-specific keys
                         KeyCode::Char('j') | KeyCode::Down
                             if app.active_view == ActiveView::SkillBrowser =>
@@ -295,11 +284,6 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut A
                                     .update_filter(String::new(), &app.skills);
                                 app.status_message = "Filter cleared".to_string();
                             }
-                        }
-                        // System overview refresh
-                        KeyCode::Char('r') if app.active_view == ActiveView::SystemOverview => {
-                            app.overview_state.refresh(&app.config, &app.skills);
-                            app.status_message = "Overview refreshed".to_string();
                         }
                         // Pipeline view navigation
                         KeyCode::Char('j') | KeyCode::Down
@@ -379,9 +363,6 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     // Main view area - dispatch to appropriate view renderer
     match app.active_view {
-        ActiveView::SystemOverview => {
-            overview::render(f, chunks[0], &app.overview_state);
-        }
         ActiveView::SkillBrowser => {
             skill_browser::render(
                 f,
@@ -439,7 +420,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         Span::raw(": quit | "),
         Span::styled("Tab", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(": next view | "),
-        Span::styled("1-4", Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled("1-3", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(": jump | "),
         Span::styled("?", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(": help"),
@@ -475,7 +456,7 @@ skills = []
         let app = App::new(config, skills);
 
         // Then
-        assert_eq!(app.active_view, ActiveView::SystemOverview);
+        assert_eq!(app.active_view, ActiveView::SkillBrowser);
         assert_eq!(app.status_message, "Ready");
         assert!(!app.should_quit);
     }
@@ -489,15 +470,14 @@ skills = []
         app.next_view();
 
         // Then
-        assert_eq!(app.active_view, ActiveView::SkillBrowser);
+        assert_eq!(app.active_view, ActiveView::PipelineView);
 
         // When
         app.next_view();
         app.next_view();
-        app.next_view();
 
         // Then (should wrap around)
-        assert_eq!(app.active_view, ActiveView::SystemOverview);
+        assert_eq!(app.active_view, ActiveView::SkillBrowser);
     }
 
     #[test]
@@ -516,6 +496,12 @@ skills = []
 
         // Then
         assert_eq!(app.active_view, ActiveView::PipelineView);
+
+        // When
+        app.prev_view();
+
+        // Then
+        assert_eq!(app.active_view, ActiveView::SkillBrowser);
     }
 
     #[test]
@@ -551,6 +537,6 @@ skills = []
         app.next_view();
 
         // Then
-        assert!(app.status_message.contains("Skill Explorer"));
+        assert!(app.status_message.contains("Pipeline View"));
     }
 }
