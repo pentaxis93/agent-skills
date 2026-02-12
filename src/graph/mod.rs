@@ -138,6 +138,49 @@ impl SkillGraph {
         Self::from_skills(crossrefs, &[])
     }
 
+    /// Returns the total number of nodes in the graph
+    pub fn node_count(&self) -> usize {
+        self.name_to_node.len()
+    }
+
+    /// Returns the total number of edges in the graph
+    pub fn edge_count(&self) -> usize {
+        self.graph.edge_count()
+    }
+
+    /// Returns a sorted vector of all skill names in the graph
+    pub fn node_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.name_to_node.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    /// Returns outgoing edges from a skill (target name + edge kind)
+    ///
+    /// Returns `None` if the skill is not in the graph.
+    pub fn edges_from(&self, name: &str) -> Option<Vec<(String, EdgeKind)>> {
+        let idx = self.name_to_node.get(name)?;
+        let edges = self
+            .graph
+            .edges(*idx)
+            .map(|e| (self.graph[e.target()].clone(), *e.weight()))
+            .collect();
+        Some(edges)
+    }
+
+    /// Returns incoming edges to a skill (source name + edge kind)
+    ///
+    /// Returns `None` if the skill is not in the graph.
+    pub fn edges_to(&self, name: &str) -> Option<Vec<(String, EdgeKind)>> {
+        let idx = self.name_to_node.get(name)?;
+        let edges = self
+            .graph
+            .edges_directed(*idx, petgraph::Direction::Incoming)
+            .map(|e| (self.graph[e.source()].clone(), *e.weight()))
+            .collect();
+        Some(edges)
+    }
+
     /// Filter to only skills in a specific pipeline
     pub fn filter_pipeline(&self, skills: &[Skill], pipeline_name: &str) -> Self {
         let pipeline_skills: HashSet<String> = skills
@@ -671,5 +714,146 @@ mod tests {
         // Then: pipeline edges create the dependency
         let line_b = text.lines().find(|l| l.starts_with("skill-b:")).unwrap();
         assert!(line_b.contains("skill-a"));
+    }
+
+    #[test]
+    fn should_return_node_count() {
+        // Given: skill-a → skill-b → skill-c
+        let mut crossrefs = HashMap::new();
+        crossrefs.insert("skill-a".to_string(), vec![test_crossref("skill-b")]);
+        crossrefs.insert("skill-b".to_string(), vec![test_crossref("skill-c")]);
+
+        // When
+        let graph = SkillGraph::from_crossrefs(&crossrefs);
+
+        // Then
+        assert_eq!(graph.node_count(), 3);
+    }
+
+    #[test]
+    fn should_return_edge_count() {
+        // Given: skill-a → skill-b → skill-c (2 edges)
+        let mut crossrefs = HashMap::new();
+        crossrefs.insert("skill-a".to_string(), vec![test_crossref("skill-b")]);
+        crossrefs.insert("skill-b".to_string(), vec![test_crossref("skill-c")]);
+
+        // When
+        let graph = SkillGraph::from_crossrefs(&crossrefs);
+
+        // Then
+        assert_eq!(graph.edge_count(), 2);
+    }
+
+    #[test]
+    fn should_return_sorted_node_names() {
+        // Given: skill-c, skill-a, skill-b (unsorted insertion)
+        let mut crossrefs = HashMap::new();
+        crossrefs.insert("skill-c".to_string(), vec![test_crossref("skill-a")]);
+        crossrefs.insert("skill-a".to_string(), vec![test_crossref("skill-b")]);
+
+        // When
+        let graph = SkillGraph::from_crossrefs(&crossrefs);
+        let names = graph.node_names();
+
+        // Then
+        assert_eq!(names, vec!["skill-a", "skill-b", "skill-c"]);
+    }
+
+    #[test]
+    fn should_return_outgoing_edges() {
+        // Given: skill-a → skill-b, skill-a → skill-c
+        let mut crossrefs = HashMap::new();
+        crossrefs.insert(
+            "skill-a".to_string(),
+            vec![test_crossref("skill-b"), test_crossref("skill-c")],
+        );
+
+        // When
+        let graph = SkillGraph::from_crossrefs(&crossrefs);
+        let edges = graph.edges_from("skill-a").unwrap();
+
+        // Then
+        assert_eq!(edges.len(), 2);
+        let targets: Vec<String> = edges.iter().map(|(t, _)| t.clone()).collect();
+        assert!(targets.contains(&"skill-b".to_string()));
+        assert!(targets.contains(&"skill-c".to_string()));
+        // All edges should be CrossRef type
+        assert!(edges.iter().all(|(_, kind)| *kind == EdgeKind::CrossRef));
+    }
+
+    #[test]
+    fn should_return_incoming_edges() {
+        // Given: skill-a → skill-c, skill-b → skill-c
+        let mut crossrefs = HashMap::new();
+        crossrefs.insert("skill-a".to_string(), vec![test_crossref("skill-c")]);
+        crossrefs.insert("skill-b".to_string(), vec![test_crossref("skill-c")]);
+
+        // When
+        let graph = SkillGraph::from_crossrefs(&crossrefs);
+        let edges = graph.edges_to("skill-c").unwrap();
+
+        // Then
+        assert_eq!(edges.len(), 2);
+        let sources: Vec<String> = edges.iter().map(|(s, _)| s.clone()).collect();
+        assert!(sources.contains(&"skill-a".to_string()));
+        assert!(sources.contains(&"skill-b".to_string()));
+    }
+
+    #[test]
+    fn should_return_none_for_nonexistent_skill() {
+        // Given: skill-a → skill-b
+        let mut crossrefs = HashMap::new();
+        crossrefs.insert("skill-a".to_string(), vec![test_crossref("skill-b")]);
+
+        // When
+        let graph = SkillGraph::from_crossrefs(&crossrefs);
+
+        // Then
+        assert!(graph.edges_from("nonexistent").is_none());
+        assert!(graph.edges_to("nonexistent").is_none());
+    }
+
+    #[test]
+    fn should_return_empty_edges_for_isolated_node() {
+        // Given: skill-a (no connections), skill-b → skill-c
+        let mut crossrefs = HashMap::new();
+        crossrefs.insert("skill-b".to_string(), vec![test_crossref("skill-c")]);
+
+        // When
+        let graph = SkillGraph::from_skills(&crossrefs, &[test_skill("skill-a")]);
+        let outgoing = graph.edges_from("skill-a").unwrap();
+        let incoming = graph.edges_to("skill-a").unwrap();
+
+        // Then
+        assert_eq!(outgoing.len(), 0);
+        assert_eq!(incoming.len(), 0);
+    }
+
+    // Helper for creating test skills
+    fn test_skill(name: &str) -> Skill {
+        use crate::skill::frontmatter::Frontmatter;
+        use std::path::PathBuf;
+
+        Skill {
+            name: name.to_string(),
+            path: PathBuf::from(format!("/test/{}", name)),
+            skill_file: PathBuf::from(format!("/test/{}/SKILL.md", name)),
+            frontmatter: Frontmatter {
+                name: name.to_string(),
+                description: format!("Test skill {}", name),
+                disable_model_invocation: None,
+                user_invocable: None,
+                allowed_tools: None,
+                context: None,
+                agent: None,
+                model: None,
+                argument_hint: None,
+                license: None,
+                compatibility: None,
+                metadata: None,
+                tags: None,
+                pipeline: None,
+            },
+        }
     }
 }
