@@ -9,3 +9,5 @@ pub mod config;
 pub mod graph;
 pub mod linker;
 pub mod skill;
+#[cfg(feature = "tui")]
+pub mod tui;
