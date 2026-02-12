@@ -60,6 +60,7 @@ impl Finding {
         }
     }
 
+    #[cfg(test)]
     fn warning(message: impl Into<String>) -> Self {
         Self {
             severity: Severity::Warning,
