@@ -1,5 +1,7 @@
 //! Interactive TUI for skill management (requires `tui` feature)
 
+#[cfg(feature = "graph")]
+mod graph_view;
 mod health;
 mod installer;
 mod skill_browser;
@@ -15,7 +17,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
     Frame, Terminal,
 };
 use std::io;
@@ -83,6 +85,9 @@ pub struct App {
     pub health_panel_state: health::HealthPanelState,
     /// Install dashboard view state
     pub installer_state: installer::InstallerState,
+    /// Graph view state
+    #[cfg(feature = "graph")]
+    pub graph_view_state: graph_view::GraphViewState,
 }
 
 impl App {
@@ -92,6 +97,10 @@ impl App {
         let mut health_panel_state = health::HealthPanelState::new();
         health_panel_state.refresh(&config, &skills);
         let installer_state = installer::InstallerState::new();
+        #[cfg(feature = "graph")]
+        let mut graph_view_state = graph_view::GraphViewState::new();
+        #[cfg(feature = "graph")]
+        graph_view_state.refresh(&config, &skills);
         App {
             config,
             skills,
@@ -101,6 +110,8 @@ impl App {
             skill_browser_state,
             health_panel_state,
             installer_state,
+            #[cfg(feature = "graph")]
+            graph_view_state,
         }
     }
 
@@ -258,6 +269,24 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut A
                                 Err(e) => app.status_message = format!("Clean failed: {}", e),
                             }
                         }
+                        // Graph view navigation
+                        #[cfg(feature = "graph")]
+                        KeyCode::Char('j') | KeyCode::Down
+                            if app.active_view == ActiveView::GraphView =>
+                        {
+                            app.graph_view_state.next();
+                        }
+                        #[cfg(feature = "graph")]
+                        KeyCode::Char('k') | KeyCode::Up
+                            if app.active_view == ActiveView::GraphView =>
+                        {
+                            app.graph_view_state.previous();
+                        }
+                        #[cfg(feature = "graph")]
+                        KeyCode::Char('r') if app.active_view == ActiveView::GraphView => {
+                            app.graph_view_state.refresh(&app.config, &app.skills);
+                            app.status_message = "Graph refreshed".to_string();
+                        }
                         _ => {}
                     }
                 }
@@ -294,13 +323,19 @@ fn ui(f: &mut Frame, app: &mut App) {
         ActiveView::InstallDashboard => {
             installer::render(f, chunks[0], &app.config, &app.skills, &app.installer_state);
         }
-        _ => {
-            // Placeholder for other views
-            let view_content = render_view_placeholder(app);
+        #[cfg(feature = "graph")]
+        ActiveView::GraphView => {
+            graph_view::render(f, chunks[0], &mut app.graph_view_state);
+        }
+        #[cfg(not(feature = "graph"))]
+        ActiveView::GraphView => {
+            let view_content =
+                "Graph view requires the 'graph' feature.\n\nRebuild with --features graph,tui"
+                    .to_string();
             let view_block = Block::default()
-                .title(format!(" {} ", app.active_view.name()))
+                .title(" Graph View ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan));
+                .border_style(Style::default().fg(Color::Red));
             let view_widget = Paragraph::new(view_content).block(view_block);
             f.render_widget(view_widget, chunks[0]);
         }
@@ -330,54 +365,6 @@ fn ui(f: &mut Frame, app: &mut App) {
     let status_bar = Paragraph::new(Line::from(status_spans))
         .style(Style::default().bg(Color::DarkGray).fg(Color::White));
     f.render_widget(status_bar, chunks[1]);
-}
-
-/// Render placeholder content for views that aren't implemented yet
-fn render_view_placeholder(app: &App) -> String {
-    let skill_count = app.skills.len();
-
-    match app.active_view {
-        ActiveView::SkillBrowser => {
-            // Should never reach here - skill browser is implemented
-            "Error: skill browser should be rendered by skill_browser::render".to_string()
-        }
-        ActiveView::GraphView => {
-            format!(
-                "Graph View (coming soon)\n\n\
-                 {} skills in dependency graph\n\n\
-                 This view will show:\n\
-                 - Box-drawing dependency graph\n\
-                 - Navigate between connected skills\n\
-                 - Highlight clusters with color\n\
-                 - Show dangling references in red",
-                skill_count
-            )
-        }
-        ActiveView::InstallDashboard => {
-            let global_targets = app.config.global.targets.len();
-            format!(
-                "Install Dashboard (coming soon)\n\n\
-                 {} global target(s)\n\n\
-                 This view will show:\n\
-                 - Current state of all target directories\n\
-                 - One-key install, clean, reinstall\n\
-                 - Diff view: what would change on next install",
-                global_targets
-            )
-        }
-        ActiveView::HealthPanel => {
-            format!(
-                "Health Panel (coming soon)\n\n\
-                 {} skills loaded\n\n\
-                 This view will show:\n\
-                 - Live results from check analysis\n\
-                 - Color-coded severity (errors/warnings/info)\n\
-                 - Navigate directly to problem skills\n\
-                 - Actionable fix suggestions",
-                skill_count
-            )
-        }
-    }
 }
 
 #[cfg(test)]
