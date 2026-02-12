@@ -136,6 +136,7 @@ annotated config.
 | `loadout validate <dir>` | Check all skills in a directory |
 | `loadout new <name>` | Create a new skill from template |
 | `loadout new <name> -d "desc"` | Create skill with description |
+| `loadout tui` | Launch interactive TUI for skill management (requires `--features tui`) |
 
 All commands respect `$LOADOUT_CONFIG` to locate your config file.
 

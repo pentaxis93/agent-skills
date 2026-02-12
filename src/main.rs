@@ -84,6 +84,9 @@ enum Commands {
         #[arg(short, long)]
         description: Option<String>,
     },
+    /// Launch interactive TUI for skill management
+    #[cfg(feature = "tui")]
+    Tui,
 }
 
 fn main() -> Result<()> {
@@ -177,6 +180,10 @@ fn main() -> Result<()> {
         }
         Commands::New { name, description } => {
             commands::new(&config, name, description)?;
+        }
+        #[cfg(feature = "tui")]
+        Commands::Tui => {
+            commands::tui(config)?;
         }
     }
 
