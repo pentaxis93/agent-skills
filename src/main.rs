@@ -37,6 +37,12 @@ enum Commands {
         /// Output format: dot, text, json, mermaid
         #[arg(long, default_value = "text")]
         format: String,
+        /// Filter to skills in a specific pipeline
+        #[arg(long)]
+        pipeline: Option<String>,
+        /// Filter to skills with a specific tag
+        #[arg(long)]
+        tag: Option<String>,
     },
     /// List enabled skills per scope
     List {
@@ -110,7 +116,11 @@ fn main() -> Result<()> {
             std::process::exit(commands::check_exit_code(&findings));
         }
         #[cfg(feature = "graph")]
-        Commands::Graph { format } => {
+        Commands::Graph {
+            format,
+            pipeline,
+            tag,
+        } => {
             let output_format =
                 commands::graph::OutputFormat::from_str(&format).unwrap_or_else(|| {
                     eprintln!(
@@ -120,7 +130,15 @@ fn main() -> Result<()> {
                     std::process::exit(1);
                 });
 
-            commands::graph(&config, output_format)?;
+            let filter = if let Some(name) = pipeline {
+                commands::graph::GraphFilter::Pipeline(name)
+            } else if let Some(tag_name) = tag {
+                commands::graph::GraphFilter::Tag(tag_name)
+            } else {
+                commands::graph::GraphFilter::None
+            };
+
+            commands::graph(&config, output_format, filter)?;
         }
         Commands::List {
             groups,

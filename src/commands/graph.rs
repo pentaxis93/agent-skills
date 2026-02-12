@@ -26,7 +26,14 @@ impl OutputFormat {
     }
 }
 
-pub fn graph(config: &Config, format: OutputFormat) -> Result<()> {
+/// Optional filter for graph command
+pub enum GraphFilter {
+    None,
+    Pipeline(String),
+    Tag(String),
+}
+
+pub fn graph(config: &Config, format: OutputFormat, filter: GraphFilter) -> Result<()> {
     use std::collections::HashSet;
 
     // Discover all skills
@@ -47,8 +54,42 @@ pub fn graph(config: &Config, format: OutputFormat) -> Result<()> {
         }
     }
 
-    // Build the graph
-    let skill_graph = SkillGraph::from_crossrefs(&crossrefs);
+    // Build the full graph (with pipeline edges and dedup)
+    let full_graph = SkillGraph::from_skills(&crossrefs, &all_skills);
+
+    // Apply filter
+    let skill_graph = match &filter {
+        GraphFilter::None => full_graph,
+        GraphFilter::Pipeline(name) => {
+            // Verify pipeline exists
+            let exists = all_skills.iter().any(|s| {
+                s.frontmatter
+                    .pipeline
+                    .as_ref()
+                    .map(|p| p.contains_key(name.as_str()))
+                    .unwrap_or(false)
+            });
+            if !exists {
+                let mut available: Vec<String> = HashSet::<String>::new().into_iter().collect();
+                for s in &all_skills {
+                    if let Some(p) = &s.frontmatter.pipeline {
+                        for name in p.keys() {
+                            available.push(name.clone());
+                        }
+                    }
+                }
+                available.sort();
+                available.dedup();
+                anyhow::bail!(
+                    "Pipeline '{}' not found. Available: {}",
+                    name,
+                    available.join(", ")
+                );
+            }
+            full_graph.filter_pipeline(&all_skills, name)
+        }
+        GraphFilter::Tag(tag) => full_graph.filter_tag(&all_skills, tag),
+    };
 
     // Output in requested format
     let output = match format {
