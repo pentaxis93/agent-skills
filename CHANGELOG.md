@@ -8,8 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- Rust project scaffolding (Cargo.toml, clap, serde dependencies)
-- Development roadmap for Phases 2–5
+
+#### Phase 2 — Rust CLI
+- `loadout install` and `loadout clean` commands with `--dry-run` support
+- `loadout validate` for SKILL.md frontmatter validation (all, by name, or by directory)
+- `loadout new` for creating skills from template
+- `loadout list` with default scope view and skill paths
+- `loadout check` for skill system health diagnostics
+- Config loading with XDG resolution, tilde expansion, and `$LOADOUT_CONFIG` override
+- Symlink creation with `.managed-by-loadout` marker tracking
+
+#### Phase 3 — Analysis
+- `loadout graph` with DOT, text, JSON, and Mermaid output formats
+- Cross-reference extraction from skill content (XML, backtick, natural language, related tables)
+- Cluster detection and root/leaf skill identification
+- `loadout list --groups` for cluster-organized display
+- `loadout list --refs <skill>` for incoming/outgoing references
+- `loadout list --missing` for dangling reference detection
+
+#### Phase 3.5 — Metadata & Actionable Output
+- `tags` field in SKILL.md frontmatter for classification (kebab-case, validated)
+- `pipeline` field in SKILL.md frontmatter for workflow stage ordering
+  with `stage`, `order`, `after`, and `before` declarations
+- `loadout list --tags` to show all tags with skill counts
+- `loadout list --tag <tag>` to filter skills by tag
+- `loadout list --pipelines` to show all pipelines with stage summaries
+- `loadout list --pipeline <name>` to show a pipeline in stage order
+- `loadout graph --pipeline <name>` and `--tag <tag>` for filtered graphs
+- Graph edge deduplication and `EdgeKind` (CrossRef vs Pipeline) distinction
+- Pipeline-aware checks: missing dependencies, asymmetric after/before declarations
+- Metadata coverage check for skills with no tags and no pipeline
+- Fix suggestions on every `loadout check` finding with `↳` prefix
+- `[check]` config section with `ignore` patterns for suppression
+- `loadout check --verbose` to show suppressed findings alongside active ones
+- JSON schema updated for tags and pipeline fields
+- Skill template updated with commented `tags` field
 
 ## [0.1.0] — 2026-02-10
 
