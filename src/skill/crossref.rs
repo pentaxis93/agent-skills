@@ -45,7 +45,7 @@ pub fn extract_references_with_filter(
     refs.extend(extract_xml_crossrefs(content));
     refs.extend(extract_backtick_context(content, known_skills));
     refs.extend(extract_related_tables(content));
-    refs.extend(extract_natural_language(content));
+    refs.extend(extract_natural_language(content, known_skills));
 
     // Filter out self-references
     refs.into_iter()
@@ -162,7 +162,10 @@ fn extract_related_tables(content: &str) -> Vec<CrossRef> {
     refs
 }
 
-fn extract_natural_language(content: &str) -> Vec<CrossRef> {
+fn extract_natural_language(
+    content: &str,
+    known_skills: Option<&std::collections::HashSet<String>>,
+) -> Vec<CrossRef> {
     let mut refs = Vec::new();
 
     // Patterns: "invoke the X skill", "load X first", "use X skill", etc.
@@ -179,8 +182,17 @@ fn extract_natural_language(content: &str) -> Vec<CrossRef> {
         for (line_num, line) in content.lines().enumerate() {
             for cap in re.captures_iter(line) {
                 if let Some(name) = cap.get(1) {
+                    let name_str = name.as_str();
+
+                    // If known_skills provided, only include if it's a known skill
+                    if let Some(known) = known_skills {
+                        if !known.contains(name_str) {
+                            continue;
+                        }
+                    }
+
                     refs.push(CrossRef {
-                        target: name.as_str().to_string(),
+                        target: name_str.to_string(),
                         line: line_num + 1,
                         method: DetectionMethod::NaturalLanguage,
                     });
@@ -273,7 +285,7 @@ mod tests {
         let content = "You should invoke the skill-review skill to verify quality";
 
         // When
-        let refs = extract_natural_language(content);
+        let refs = extract_natural_language(content, None);
 
         // Then
         assert_eq!(refs.len(), 1);
@@ -285,9 +297,11 @@ mod tests {
     fn should_extract_natural_language_load_first() {
         // Given
         let content = "Load voice first before editing articles";
+        let mut known = std::collections::HashSet::new();
+        known.insert("voice".to_string());
 
         // When
-        let refs = extract_natural_language(content);
+        let refs = extract_natural_language(content, Some(&known));
 
         // Then
         assert_eq!(refs.len(), 1);
